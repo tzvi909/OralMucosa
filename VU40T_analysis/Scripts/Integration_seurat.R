@@ -7,11 +7,29 @@ library(dplyr)
 library(patchwork)
 library(SingleCellExperiment)
 library(clustree)
+library(pagoda2) ## GSEA
 
 git_dir <- "~/OralMucosa/VU40T_analysis"
 
 ### funcs
-## don't use for integration
+
+format_gene_symbol <- function(gene) {
+  # If Ensembl ID (starts with ENS) → leave unchanged
+  if (grepl("^ENS", gene)) {
+    return(gene)
+  }
+  
+  # If all uppercase → leave unchanged (standard convention for human gene symbols)
+  if (toupper(gene) == gene) {
+    return(gene)
+  }
+  
+  # Else → capitalize first letter, lowercase rest (standard mouse gene symbol)
+  paste0(toupper(substring(gene, 1, 1)), tolower(substring(gene, 2)))
+}
+
+
+
 
 preIntegrationSeuratList <- readRDS("annotated_VU40T_sepsamples_singlets_only_mouse.rds")
 
@@ -125,9 +143,12 @@ VU40T.combined$seurat_clusters <- VU40T.combined$RNA_snn_res.0.5 ##update with i
 
 saveRDS(VU40T.combined, file = "VU40T_combined_joined_1.0_res_mouse.rds")
 
+##mouse
 VU40T.combined<- readRDS("VU40T_combined_joined_1.0_res_mouse.rds")
-VU40T.combined <- NormalizeData(VU40T.combined)
-VU40T.combined <- ScaleData(VU40T.combined)
+##human
+VU40T.combined<- readRDS("~/R/VU40T_joined_res0.5.rds")
+# VU40T.combined <- NormalizeData(VU40T.combined)
+# VU40T.combined <- ScaleData(VU40T.combined)
 ##find markers
 markers <- FindAllMarkers(VU40T.combined,
                           only.pos = T,
@@ -139,6 +160,11 @@ write.csv(markers, file = file.path(
   "/Integrated/Mouse/15_PCs_ClusterMarkers_res_0.5_again_VU40T_combined.csv"), 
   row.names = FALSE)
 
+## convert back to camelcase if mouse.
+
+markers$gene <- sapply(markers$gene, stringr::str_to_title)
+
+
 
 p1 <- DimPlot(VU40T.combined, reduction = "tsne", split.by = "condition", label = T)
 p2 <- DimPlot(VU40T.combined, reduction = "umap", split.by = "condition", label = T) 
@@ -146,7 +172,7 @@ png(file = file.path(git_dir, "Integrated/Mouse/Plots/16_PCs_VU40T_UMAP_tSNE_Res
 print(p1 + p2)
 dev.off()
 
-print(p2)
+# print(p2)
 library(SingleR) ## doesn't work with human
 
 ref <- readRDS("~/R/HPCA_reference.rds") 
@@ -183,17 +209,143 @@ dev.off()
 
 
 ###GSEA
-library(irGSEA)
-##species Homo sapiens or Mus musculus
-VU40T.combined_GSEA <- irGSEA.score(object = VU40T.combined, assay = "RNA", 
-                             slot = "data", seeds = 123, ncores = 8,
-                             min.cells = 3, min.feature = 0,
-                             custom = F, geneset = NULL, msigdb = T, 
-                             species = "Mus musculus", 
-                             category = "H",  
-                             subcategory = NULL, geneid = "symbol",
-                             method = c("AUCell", "UCell", "singscore", 
-                                        "ssgsea", "JASMINE", "viper"),
-                             aucell.MaxRank = NULL, ucell.MaxRank = NULL, 
-                             kcdf = 'Gaussian')
+
+### this requires a lot of memory - do not run.
+# library(irGSEA)
+# ##species Homo sapiens or Mus musculus
+# VU40T.combined_GSEA <- irGSEA.score(object = VU40T.combined, assay = "RNA", 
+#                              slot = "data", seeds = 123, ncores = 8,
+#                              min.cells = 3, min.feature = 0,
+#                              group.by = "seurat_clusters",
+#                              custom = F, geneset = NULL, msigdb = T, 
+#                              species = "Mus musculus", 
+#                              category = "H",  
+#                              subcategory = NULL, geneid = "symbol",
+#                              method = c("AUCell", "UCell", "singscore", 
+#                                         "ssgsea", "JASMINE", "viper"),
+#                              aucell.MaxRank = NULL, ucell.MaxRank = NULL, 
+#                              kcdf = 'Gaussian')
+
+library(msigdbr)
+library(clusterProfiler)
+library(dplyr)
+
+# Load REACTOME
+go_mouse_bp <- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:REACTOME") %>%
+  dplyr::select(gs_name, gene_symbol)
+
+# Needed format for clusterProfiler GSEA:
+go_mouse_bp_list <- split(go_mouse_bp$gene_symbol, go_mouse_bp$gs_name)
+
+
+
+# List of unique clusters
+clusters <- unique(markers$cluster)
+
+# Initialize list to store results
+gsea_results_list <- list()
+
+for (clust in clusters) {
+  cat("Running GSEA for cluster:", clust, "\n")
+  
+  # Subset markers for this cluster
+  markers_clust <- markers %>% filter(cluster == clust)
+  
+  # Prepare ranked gene list
+  gene_list <- markers_clust$avg_log2FC
+  names(gene_list) <- markers_clust$gene
+  gene_list <- sort(gene_list, decreasing = TRUE)
+  
+  # Run GSEA
+  gsea_result <- GSEA(
+    geneList = gene_list,
+    TERM2GENE = go_mouse_bp,
+    verbose = FALSE
+  )
+  
+  # Save result
+  gsea_results_list[[as.character(clust)]] <- gsea_result
+}
+
+# Loop over all GSEA results and plot only those with significant pathways
+for (clust in names(gsea_results_list)) {
+  cat("Plotting GSEA for Cluster", clust, "...\n")
+  
+  gsea_result <- gsea_results_list[[clust]]
+  
+  if (nrow(gsea_result@result) > 0) {
+    png(
+      filename = file.path(
+        git_dir, paste0("/Integrated/Mouse/Plots/GSEA_reactome_cluster_", clust, ".png")
+      ),
+      width = 5, height = 10, units = "in", res = 300
+    )
+    print(
+      dotplot(gsea_result, showCategory = 20) + 
+        ggtitle(paste("Cluster", clust, "GSEA REACTOME"))
+    )
+  } else {
+    message("No significant pathways for Cluster ", clust, " — skipping plot.")
+  }
+}
+
+
+## human
+go_human_RM <- msigdbr(species = "Homo sapiens", category = "C2", subcategory = "CP:REACTOME") %>%
+  dplyr::select(gs_name, gene_symbol)
+
+# Needed format for clusterProfiler GSEA:
+go_human_RM_list <- split(go_human_RM$gene_symbol, go_human_RM$gs_name)
+
+
+  
+# List of unique clusters
+clusters <- unique(markers$cluster)
+
+# Initialize list to store results
+gsea_results_list <- list()
+
+for (clust in clusters) {
+  cat("Running GSEA for cluster:", clust, "\n")
+  
+  # Subset markers for this cluster
+  markers_clust <- markers %>% filter(cluster == clust)
+  
+  # Prepare ranked gene list
+  gene_list <- markers_clust$avg_log2FC
+  names(gene_list) <- markers_clust$gene
+  gene_list <- sort(gene_list, decreasing = TRUE)
+  
+  # Run GSEA
+  gsea_result <- GSEA(
+    geneList = gene_list,
+    TERM2GENE = go_human_RM,
+    verbose = FALSE
+  )
+  
+  # Save result
+  gsea_results_list[[as.character(clust)]] <- gsea_result
+}
+
+# Loop over all GSEA results and plot only those with significant pathways
+for (clust in names(gsea_results_list)) {
+  cat("Plotting GSEA for Cluster", clust, "...\n")
+  
+  gsea_result <- gsea_results_list[[clust]]
+  
+  if (nrow(gsea_result@result) > 0) {
+    png(
+      filename = file.path(
+        git_dir, paste0("/Integrated/Plots/GSEA_reactome_cluster_", clust, ".png")
+      ),
+      width = 5, height = 10, units = "in", res = 300
+    )
+    print(
+      dotplot(gsea_result, showCategory = 20) + 
+        ggtitle(paste("Cluster", clust, "GSEA REACTOME"))
+    )
+  } else {
+    message("No significant pathways for Cluster ", clust, " — skipping plot.")
+  }
+}
 
