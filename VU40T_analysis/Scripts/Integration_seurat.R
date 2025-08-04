@@ -7,11 +7,13 @@ library(dplyr)
 library(patchwork)
 library(SingleCellExperiment)
 library(clustree)
-library(pagoda2) ## GSEA
 library(biomaRt)
 library(msigdbr)
 library(enrichplot)
 library(clusterProfiler)
+library(ComplexHeatmap)
+library(circlize)  # for colors)
+library(RColorBrewer)
 
 
 git_dir <- "~/OralMucosa/VU40T_analysis"
@@ -489,17 +491,127 @@ make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Sp
 if (all(VU40T.combined$species == "Human")){
   genelist <- read.csv("~/markers_secondset_human_ep.csv", header = T)
   make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_onlySET2_Epithelial"))
+  ### for heatmap
+  heatmap_markers <- genelist[, c(1:5)]
+  colnames(heatmap_markers) <- stringr::str_replace(colnames(heatmap_markers), "\\.", " ")
+  colnames(heatmap_markers) <- stringr::str_replace(colnames(heatmap_markers), "junctions", "Junctions")
+  # Assuming your marker df is named marker_df
+  marker_long <- heatmap_markers %>%
+    tidyr::pivot_longer(cols = everything(), names_to = "Group", values_to = "Gene") %>%
+    dplyr::filter(!is.na(Gene) & Gene != "")
+  # Filter for genes that are present
+  marker_long <- marker_long %>% dplyr::filter(Gene %in% rownames(VU40T.combined))
+  
+  ### line wrapping func.
+  marker_long$Group <- sapply(marker_long$Group, function(x) {
+    if (nchar(x) > 15 && grepl(" ", x)) {
+      gsub(" ", "\n", x)  # replace . or _ with a line break
+    } else {
+      x  # keep as is
+    }
+  })
+  # Compute average expression
+  avg_expr <- AverageExpression(VU40T.combined, features = unique(marker_long$Gene), return.seurat = FALSE, assays = "RNA")$RNA
+  avg_expr@Dimnames[[2]] <- stringr::str_replace(avg_expr@Dimnames[[2]], "g", "")
+  # Order genes as in the original df
+  marker_long <- marker_long %>%
+    distinct(Gene, .keep_all = TRUE)  # drop duplicate entries
+  
+  # Reorder avg_expr to match marker order
+  avg_expr <- avg_expr[marker_long$Gene, ]
+  
+  scaled_expr <- t(scale(t(avg_expr)))
+  # Clip values to range [-2, 2] for visual clarity
+  scaled_expr[scaled_expr > 2] <- 2
+  scaled_expr[scaled_expr < -2] <- -2
+  
+  # Annotation (for row group labels)
+  row_annot <- rowAnnotation(
+    Group = marker_long$Group,
+    col = list(Group = structure(
+      circlize::rand_color(length(unique(marker_long$Group))),
+      names = unique(marker_long$Group)
+    )),
+    show_annotation_name = TRUE,
+    show_legend = FALSE 
+  )
+  
+  # Select 3-color palette from RColorBrewer
+  color_palette <- RColorBrewer::brewer.pal(n = 3, name = "YlOrRd")
+  
+  # Build color function
+  col_fun <- colorRamp2(
+    breaks = c(-2, 0, 2),
+    colors = color_palette
+  )
+  png(file = file.path(
+    git_dir,
+    "Integrated/Plots/HeatMap_epiMarkers_clusterResolution0.6_VU40T_combined.png"),
+    width = 8, height = 10, units = "in", res = 300)
+  p <- Heatmap(
+    matrix = as.matrix(scaled_expr),
+    name = "Z-scaled Expr",
+    cluster_rows = FALSE,
+    cluster_columns = TRUE,
+    show_row_names = TRUE,
+    show_column_names = TRUE,
+    row_names_gp = gpar(fontsize = 8),
+    column_names_gp = gpar(fontsize = 10),
+    column_names_rot = 0,
+    row_split = marker_long$Group,
+    left_annotation = row_annot,
+    col = col_fun,
+    heatmap_legend_param = list(title = "Z-scaled\nExpression", fontsize = 8),
+    use_raster = TRUE,
+  )
+  draw(p,   padding = unit(c(10, 20, 10, 10), "mm"))  # prevent clipping
+  dev.off()
 }
 ## genelist 3 -> mouse and human epithelial, fibroblast and EMT markers
 genelist <- as.data.frame(read.csv("~/Markers_for_dotplots_2_ep_2nd_set.csv", header = T, skip = 1))
+genelist <- as.data.frame(lapply(genelist, toupper))
+genelist[] <- lapply(genelist, function(x) gsub("CDH2", "", x))
+
 if (Species == "Mouse"){
-  genelist <- genelist[,-c(1:3)] ## both human and mouse markers
-  genelist <- as.data.frame(lapply(genelist, toupper))
+  genelist <- genelist[, c(4,5)] ## both human and mouse markers w/out emt
   colnames(genelist) <- gsub("_[HM]", "", colnames(genelist))
+
 }else{
-  genelist <- genelist[, c(1:3)] ## both human and mouse markers
+  genelist <- genelist[, c(1:2)] ## both human and mouse markers, no need for EMT here
   colnames(genelist) <- gsub("_[HM]", "", colnames(genelist))
 }
+colnames(genelist) <- gsub("_", " ", colnames(genelist))
+colnames(genelist) <- gsub("markers", "Markers", colnames(genelist))
+## convert to named vectors
+genevectors <- lapply(genelist, function(x) unique(x[x != "" & !is.na(x)]))
+
+if (all(VU40T.combined$species == "Human")){
+  png(file = file.path(
+    git_dir,
+    "Integrated/Plots/CombinedDotplot_epi_fibro_Markers_clusterResolution0.3_VU40T_combined.png"),
+    width = 8, height = 4, units = "in", res = 300)
+  
+} else {
+  png(file = file.path(
+    git_dir,
+    "Integrated/Mouse/Plots/CombinedDotplot_epi_Fibro_Markers_clusterResolution0.6_VU40T_combined.png"),
+    width = 8, height = 4, units = "in", res = 300)
+}
+
+p <- DotPlot(
+      VU40T.combined,
+      features = genevectors,
+      group.by = "seurat_clusters",
+    ) +
+    RotatedAxis() +
+    scale_color_gradient(low = "lightgrey", high = "red") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.text.y = element_text(face = "italic")  # Optional: italics for gene names
+    ) + labs(y = "Clusters")  # 👈 Relabel y-axis
+print(p)  
+dev.off()
+ 
 
 for (i in seq_len(ncol(genelist))) {
   gene_vector <- na.omit(genelist[[i]])  # extract column as vector and remove NAs
