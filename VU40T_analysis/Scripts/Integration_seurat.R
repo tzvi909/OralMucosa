@@ -1,4 +1,4 @@
-
+Sys.setenv(BIOCFILECACHE_DIR = tempfile())
 
 ###libs
 library(Seurat)
@@ -31,9 +31,16 @@ if(!(dir.exists(cache_dir))){
 
 
 make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T){
-  # colnames(genelist) <- gsub("[._]", " ", colnames(genelist))
+  colnames(genelist) <- sapply(colnames(genelist), function(x) {
+    parts <- stringr::str_split(x, "_")[[1]]
+    if (length(parts) >= 2 && parts[2] != toupper(parts[2])) {
+      parts[2] <- stringr::str_to_title(parts[2])
+    }
+    paste(parts, collapse = "_")
+  })
+  colnames(genelist) <- gsub("[._]", " ", colnames(genelist))
   ## revert to whitespaces if whitespaces in original colname or change underscores to whitespace
-  if (all(VU40T.combined$species == "Mouse")){
+  if (all(seurat_obj$species == "Mouse")){
     
     # Connect to Ensembl human mart (homolog info is already stored here)
     human <- useEnsembl(
@@ -103,22 +110,34 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T){
     
     # Export or print
     if (export) {
+      
+      num_genes <- length(na.omit(gene_set[[i]]))
+      if (num_genes <= 6) {
+        plot_width <- 6  # Small gene sets: fixed small width
+      } else {
+        plot_width <- min(max(2 * num_genes + 4, 10), 50)
+      }
+      colnames(genelist) <- gsub(" ", "_", colnames(genelist))
+      
+      
       if (all(seurat_obj$species == "Human")) {
         png(file = file.path(
           git_dir,
           paste0("Integrated/Plots/MarkerDotplots/HumanONLY_Dotplot_clusterResolution0.3_",
                  outPrefix, "_", colnames(genelist)[i], "_VU40T_combined.png")),
-          width = 12, height = 10, units = "in", res = 300)
+          width = plot_width, height = 4, units = "in", res = 300)
       } else {
         png(file = file.path(
           git_dir,
           paste0("Integrated/Mouse/Plots/MouseONLY_MarkerDotplots/Dotplot_clusterResolution0.6_",
                  outPrefix, "_", colnames(genelist)[i], "_VU40T_combined.png")),
-          width = 12, height = 10, units = "in", res = 300)
+          width = plot_width, height = 4, units = "in", res = 300)
       }
+      colnames(genelist) <- gsub("[._]", " ", colnames(genelist))
       print(p)
       dev.off()
     } else {
+      colnames(genelist) <- gsub("[._]", " ", colnames(genelist))
       print(p)
     }
   }
@@ -396,8 +415,10 @@ write.csv(markers, file = file.path(
   row.names = FALSE)
 
 ## convert back to camelcase if mouse.
+if (all(VU40T.combined$species == "Mouse")){
+  markers$gene <- sapply(markers$gene, stringr::str_to_title)
+}
 
-markers$gene <- sapply(markers$gene, stringr::str_to_title)
 
 
 
@@ -474,11 +495,155 @@ genelist <- as.data.frame(read.csv("~/Markers_for_dotplots_2_ep_2nd_set.csv", he
 if (Species == "Mouse"){
   genelist <- genelist[,-c(1:3)] ## both human and mouse markers
   genelist <- as.data.frame(lapply(genelist, toupper))
+  colnames(genelist) <- gsub("_[HM]", "", colnames(genelist))
 }else{
   genelist <- genelist[, c(1:3)] ## both human and mouse markers
+  colnames(genelist) <- gsub("_[HM]", "", colnames(genelist))
 }
 
+for (i in seq_len(ncol(genelist))) {
+  gene_vector <- na.omit(genelist[[i]])  # extract column as vector and remove NAs
+  
+  if (length(gene_vector) > 0) {  # skip empty gene sets
+    p <- FeaturePlot(VU40T.combined, features = gene_vector, label = T)
+    
+    print(p)  # or save if needed
+  }
+}
 
+for (i in genelist$Fibroblast_markers){
+  # Choose your gene of interest
+  gene <- i
+  
+  print(gene)
+  # Get expression matrix (log-normalized by default)
+  expr <- GetAssayData(VU40T.combined, slot = "data", assay = "RNA")[gene, ]
+  
+  expressing_cells <- expr > 0
+  
+  # Get cluster labels for those cells
+  cluster_labels <- Idents(VU40T.combined)
+  
+  # Total cells per cluster
+  total_cells <- table(cluster_labels)
+  
+  # Find cells where expression > 0
+  expressing_cells <- expr > 0
+  
+  # Tabulate by cluster
+  print(table(Idents(VU40T.combined)[expressing_cells]))
+  
+  # Expressing cells per cluster
+  expressing_cells_per_cluster <- table(cluster_labels[expressing_cells])
+  
+  # Ensure all clusters are represented (even if 0 cells express the gene)
+  all_clusters <- names(total_cells)
+  percent_expressing <- sapply(all_clusters, function(clust) {
+    total <- total_cells[clust]
+    expressed <- expressing_cells_per_cluster[clust]
+    if (is.na(expressed)) expressed <- 0
+    round((expressed / total) * 100, 2)  # percentage rounded to 2 decimal places
+  })
+  
+  # Convert to a named vector or data frame
+  percent_expressing_df <- data.frame(
+    Cluster = names(percent_expressing),
+    PercentExpressing = percent_expressing
+  )
+  
+  # View the result
+  print(percent_expressing_df)
+} 
+
+
+for (i in genelist$Epithelial_markers){
+  # Choose your gene of interest
+  gene <- i
+  
+  print(gene)
+  # Get expression matrix (log-normalized by default)
+  expr <- GetAssayData(VU40T.combined, slot = "data", assay = "RNA")[gene, ]
+  
+  expressing_cells <- expr > 0
+  
+  # Get cluster labels for those cells
+  cluster_labels <- Idents(VU40T.combined)
+  
+  # Total cells per cluster
+  total_cells <- table(cluster_labels)
+  
+  # Find cells where expression > 0
+  expressing_cells <- expr > 0
+  
+  # Tabulate by cluster
+  print(table(Idents(VU40T.combined)[expressing_cells]))
+  
+  # Expressing cells per cluster
+  expressing_cells_per_cluster <- table(cluster_labels[expressing_cells])
+  
+  # Ensure all clusters are represented (even if 0 cells express the gene)
+  all_clusters <- names(total_cells)
+  percent_expressing <- sapply(all_clusters, function(clust) {
+    total <- total_cells[clust]
+    expressed <- expressing_cells_per_cluster[clust]
+    if (is.na(expressed)) expressed <- 0
+    round((expressed / total) * 100, 2)  # percentage rounded to 2 decimal places
+  })
+  
+  # Convert to a named vector or data frame
+  percent_expressing_df <- data.frame(
+    Cluster = names(percent_expressing),
+    PercentExpressing = percent_expressing
+  )
+  
+  # View the result
+  print(percent_expressing_df)
+} 
+
+gene <- "RHOA"
+
+print(gene)
+# Get expression matrix (log-normalized by default)
+expr <- GetAssayData(VU40T.combined, slot = "data", assay = "RNA")[gene, ]
+
+expressing_cells <- expr > 0
+
+# Get cluster labels for those cells
+cluster_labels <- Idents(VU40T.combined)
+
+# Total cells per cluster
+total_cells <- table(cluster_labels)
+
+# Find cells where expression > 0
+expressing_cells <- expr > 0
+
+# Tabulate by cluster
+print(table(Idents(VU40T.combined)[expressing_cells]))
+
+# Expressing cells per cluster
+expressing_cells_per_cluster <- table(cluster_labels[expressing_cells])
+
+# Ensure all clusters are represented (even if 0 cells express the gene)
+all_clusters <- names(total_cells)
+percent_expressing <- sapply(all_clusters, function(clust) {
+  total <- total_cells[clust]
+  expressed <- expressing_cells_per_cluster[clust]
+  if (is.na(expressed)) expressed <- 0
+  round((expressed / total) * 100, 2)  # percentage rounded to 2 decimal places
+})
+
+# Convert to a named vector or data frame
+percent_expressing_df <- data.frame(
+  Cluster = lapply(names(percent_expressing), integer),
+  PercentExpressing = percent_expressing
+)
+
+# View the result
+print(percent_expressing_df)
+
+FeaturePlot(VU40T.combined, features = "RHOA", label = T)
+
+gene
 make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_epi_fibro"))
 
 
@@ -574,6 +739,11 @@ go_human_RM <- msigdbr(species = "Homo sapiens", category = "C2", subcategory = 
 # Needed format for clusterProfiler GSEA:
 go_human_RM_list <- split(go_human_RM$gene_symbol, go_human_RM$gs_name)
 
+# For each cluster, get top 200 genes by avg_log2FC
+top_genes_per_cluster <- markers %>%
+  group_by(cluster) %>%
+  arrange(desc(avg_log2FC)) %>%
+  slice_head(n = 200)
 
   
 # List of unique clusters
@@ -613,7 +783,7 @@ for (clust in names(gsea_results_list)) {
   if (nrow(gsea_result@result) > 0) {
     png(
       filename = file.path(
-        git_dir, paste0("/Integrated/Plots/HumanOnlyGSEA_reactome_cluster_", clust, ".png")
+        git_dir, paste0("/Integrated/Plots/Top200_HumanOnlyGSEA_reactome_cluster_", clust, ".png")
       ),
       width = 5, height = 10, units = "in", res = 300
     )
@@ -652,13 +822,17 @@ make_gene_names_uppercase <- function(seurat_obj, assay = "RNA") {
 }
 
 # Apply to your object
-VU40T.combined <- make_gene_names_uppercase(VU40T.combined)
-## marker dotplots
+
+if (all(VU40T.combined$species == "Mouse")){
+  VU40T.combined <- make_gene_names_uppercase(VU40T.combined)
+}
+
+## signed averages
 
 # Step 1: Define gene sets (convert to uppercase)
 epithelial_genes <- toupper(c("Cdh1", "Cldn7", "Krt17", "Krt19", "Dsp"))
 fibroblast_genes <- toupper(c("Vim", "Col1a1", "S100a4", "Pdgfra", "Fn1"))
-emt_genes <- toupper(c("Acta2", "Cldh2", "Snai1", "Twist2", "Zeb1"))
+emt_genes <- toupper(c("Acta2", "Cdh2", "Snai1", "Twist2", "Zeb1"))
 
 # Step 2: Set correct assay and identity class
 DefaultAssay(VU40T.combined) <- "RNA"
@@ -668,7 +842,8 @@ Idents(VU40T.combined) <- "seurat_clusters"
 cluster_avgs <- AverageExpression(
   VU40T.combined, 
   features = unique(c(epithelial_genes, fibroblast_genes, emt_genes)), 
-  slot = "data"
+  slot = "data",
+  assay = "RNA"
 )$RNA
 
 # Step 4: Compute mean scores for each gene set per cluster
@@ -705,14 +880,45 @@ VU40T.combined$Phenotype <- cluster_scores$Phenotype[match(cluster_ids, cluster_
 
 
 # Step 8: Plot UMAP with phenotype labels
-png("HumanOnly_UMAP_cluster_annotations.png", width = 8, height = 6, units = "in", res = 300)
-DimPlot(VU40T.combined, group.by = "Phenotype", label = TRUE, repel = TRUE) +
+if (all(VU40T.combined$species == "Human")){
+  png(file.path(git_dir, "Integrated/Plots/HumanOnly_UMAP_cluster_annotations.png")
+      , width = 8, height = 6, units = "in", res = 300)
+}else{
+  png(file.path(git_dir, "Integrated/Mouse/Plots/MouseOnly_UMAP_cluster_annotations.png"), 
+      width = 8, height = 6, units = "in", res = 300)
+}
+
+p <- DimPlot(VU40T.combined, group.by = "Phenotype", label = TRUE, repel = TRUE) +
   ggtitle("UMAP Colored by Dominant Gene Set Phenotype")
+print(p)
 dev.off()
 
 # Optional: View cluster scores table
 print(cluster_scores)
 
+write.csv(cluster_scores, file = file.path(git_dir, "Integrated/Epi_fib_EMT_cluster_signed_avs.csv"))
+
+# Define gene sign vector: +1 for epithelial, -1 for fibroblast and EMT
+gene_weights <- c(
+  setNames(rep(1, length(epithelial_genes)), epithelial_genes),
+  setNames(rep(-1, length(fibroblast_genes)), fibroblast_genes),
+  setNames(rep(-1, length(emt_genes)), emt_genes)
+)
+
+# Filter genes present in the Seurat object
+valid_genes <- intersect(names(gene_weights), rownames(VU40T.combined[["RNA"]]))
+
+# Get scaled or normalized data (slot = "data")
+expr_mat <- GetAssayData(VU40T.combined, assay = "RNA", slot = "data")[valid_genes, ]
+
+# Apply gene weights
+signed_expr <- expr_mat * gene_weights[valid_genes]
+
+# Compute per-cell signed score
+signed_score <- Matrix::colMeans(signed_expr)
+
+# Add to metadata
+VU40T.combined$signed_score <- signed_score
 
 cluster_means <- tapply(VU40T.combined$signed_score, VU40T.combined$seurat_clusters, mean)
 
@@ -732,7 +938,7 @@ umap_df <- Embeddings(VU40T.combined, "umap") %>%
   mutate(
     cluster = VU40T.combined$seurat_clusters,
     phenotype = VU40T.combined$Phenotype,
-    score = VU40T.combined$signed_score_set1  # <- use correct column
+    score = VU40T.combined$signed_score  # <- use correct column
   )
 
 # Get median UMAP coordinates for each cluster for labeling
@@ -743,7 +949,7 @@ label_df <- umap_df %>%
 
 p <- FeaturePlot(
   object = VU40T.combined,
-  features = "signed_score_set1",  # Use your actual score name
+  features = "signed_score",  # Use your actual score name
   label = FALSE,
   pt.size = 0.5
 ) +
@@ -753,7 +959,7 @@ p <- FeaturePlot(
     high = "red",
     midpoint = 0
   ) +
-  ggtitle("Signed Score Set 1 with Cluster Phenotype Labels") +
+  ggtitle("Signed Score with Cluster Phenotype Labels") +
   theme(plot.title = element_text(hjust = 0.5))
 
 # Step 2: Extract UMAP coordinates for labeling
@@ -780,7 +986,7 @@ p + geom_text(
   fontface = "bold",
   color = "black"
 )
-ggsave("FeaturePlot_signed_score_with_labels.png", width = 8, height = 6, dpi = 300)
+ggsave(file.path(git_dir, "Integrated/Plots/HumanOnly_epi_signed_score_with_labels.png"), width = 8, height = 6, dpi = 300)
 
 
 ###pseudobulk
