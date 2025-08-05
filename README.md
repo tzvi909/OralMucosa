@@ -32,7 +32,7 @@ VU40T_analysis/
 │   │   └── Plots/    #  Plots from seurat analysis on Integrated dataset using mouse alignment only. includes pseudobulk, bulk and pseudotime plots. pseudotime DEGs are in the Pseudotime_MouseOnly/ subdir
 ```
 
-🛠️ Dependencies
+
 ## 🛠️ Dependencies
 This analysis was run using R (v. 4.4.1) and the following R packages:
 
