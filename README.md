@@ -36,8 +36,10 @@ VU40T_analysis/
 ## 🛠️ Dependencies
 This analysis was run using R (v. 4.4.1) and the following R packages:
 
+```bash
 sessionInfo()
-[1] clusterProfiler_4.12.0     
+
+ [1] clusterProfiler_4.12.0     
  [2] enrichplot_1.24.0          
  [3] msigdbr_24.1.0             
  [4] pagoda2_1.0.12             
@@ -69,3 +71,4 @@ sessionInfo()
 [30] sp_2.2-0  
 [31] EnhancedVolcano_1.24.0     
 [32] ggrepel_0.9.6
+```
