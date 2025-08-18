@@ -437,8 +437,76 @@ print(p1 + p2)
 dev.off()
 
 # print(p2)
-library(SingleR) ## doesn't work with human
+library(HCATonsilData)
 
+
+library("BiocFileCache")
+
+Sys.setenv(BFC_CACHE=file.path(proj_dir, ".cache"))
+# Example: Set the cache to a specific directory
+bfc = BiocFileCache(cache = file.path(proj_dir, ".cache"), ask = FALSE)
+bfccache(bfc)
+
+bfccache(bfc)
+
+tools::R_user_dir("BiocFileCache", which="cache")
+
+if (all(VU40T.combined$species == "Human")){
+  sce_HCATonsil_epithelial <- HCATonsilData(assayType = "RNA", cellType = "epithelial")
+  # Get counts and metadata manually
+  counts_epi <- counts(sce_HCATonsil_epithelial)
+  counts_epi <- as(counts_epi, "dgCMatrix")
+  logcounts_epi <- logcounts(sce_HCATonsil_epithelial)
+  logcounts_epi <- as(logcounts_epi, "dgCMatrix")
+  metadata_epi <- as.data.frame(colData(sce_HCATonsil_epithelial))
+  seu_epi <- CreateSeuratObject(counts = counts_epi, meta.data = metadata_epi)
+  seu_epi <- SetAssayData(seu_epi, slot = "data", new.data = logcounts_epi)
+  seu_ref <- seu_epi
+  rm(list = c(seu_epi, counts_epi, logcounts_epi, metadata_epi))
+  }
+
+if (all(VU40T.combined$species == "Mouse")){
+  sce_HCATonsil_mesenchymal <- HCATonsilData(assayType = "RNA", cellType = "FDC")
+  counts_fdc <- counts(sce_HCATonsil_mesenchymal)
+  logcounts_fdc <- logcounts(sce_HCATonsil_mesenchymal)
+  counts_fdc <- as(counts_fdc, "dgCMatrix")
+  logcounts_fdc <- as(logcounts_fdc, "dgCMatrix")
+  metadata_fdc <- as.data.frame(colData(sce_HCATonsil_mesenchymal))
+  seu_fdc <- CreateSeuratObject(counts = counts_fdc, meta.data = metadata_fdc)
+  seu_fdc <- SetAssayData(seu_fdc, slot = "data", new.data = logcounts_fdc)
+  seu_ref <- seu_fdc
+  rm(list = c(seu_fdc, counts_fdc, logcounts_fdc, metadata_fdc))
+}
+
+seu_ref <- NormalizeData(seu_ref)
+seu_ref <- FindVariableFeatures(seu_ref)
+seu_ref <- ScaleData(seu_ref)
+seu_ref <- RunPCA(seu_ref)
+
+anchors <- FindTransferAnchors(
+  reference = seu_ref,
+  query = VU40T.combined,
+  dims = 1:30,
+  reference.assay = "RNA",
+  query.assay = "RNA"
+)
+
+predictions <- TransferData(
+  anchorset = anchors,
+  refdata = seu_fdc$annotation_20230508,  # or ref_seurat$celltype if that's what it's called
+  dims = 1:30
+)
+VU40T.combined <- AddMetaData(object = VU40T.combined, metadata = predictions)
+
+p1 <- DimPlot(VU40T.combined, group.by = "predicted.id", split.by = "condition" , label = TRUE, label.size = 3)
+p2 <- DimPlot(VU40T.combined, group.by = "seurat_clusters", split.by = "condition")
+if(all(VU40T.combined$species == "Mouse")){
+  png(file = paste0(git_dir,"/Integrated/Mouse/Plots/Azimuth_annotated_UMAP_VU40T_combined.png"), width = 12, height = 10, units = "in", res = 300)
+}else{
+  png(file = paste0(git_dir,"/Integrated/Plots/Azimuth_annotated_UMAP_VU40T_combined.png"), width = 12, height = 10, units = "in", res = 300)
+}
+print(p1 + p2)
+dev.off()
 
 ## for mouse
 if (all(VU40T.combined$species == "Mouse")) {
@@ -523,7 +591,6 @@ if (all(VU40T.combined$species == "Human")){
   scaled_expr <- t(scale(t(avg_expr)))
   # Clip values to range [-2, 2] for visual clarity
   scaled_expr[scaled_expr > 2] <- 2
-  scaled_expr[scaled_expr < -2] <- -2
   
   # Annotation (for row group labels)
   row_annot <- rowAnnotation(
@@ -572,7 +639,7 @@ genelist <- as.data.frame(read.csv("~/Markers_for_dotplots_2_ep_2nd_set.csv", he
 genelist <- as.data.frame(lapply(genelist, toupper))
 genelist[] <- lapply(genelist, function(x) gsub("CDH2", "", x))
 
-if (Species == "Mouse"){
+if (all(VU40T.combined$species == "Mouse")){
   genelist <- genelist[, c(4,5)] ## both human and mouse markers w/out emt
   colnames(genelist) <- gsub("_[HM]", "", colnames(genelist))
 
@@ -611,8 +678,260 @@ p <- DotPlot(
     ) + labs(y = "Clusters")  # 👈 Relabel y-axis
 print(p)  
 dev.off()
- 
 
+if (all(VU40T.combined$species == "Mouse")){
+  VU40T.combined <- subset(VU40T.combined, idents = "13", invert = TRUE)
+  Species = "Mouse"
+  genelist <- read.csv("~/Fibroblasts_dotplots_markers.csv", header = F)
+  names(genelist) <- "Fibroblast Markers"
+  
+  png(file = file.path(
+    git_dir,
+    "Integrated/Mouse/Plots/MouseONLY_MarkerDotplots/Dotplot_Fibro_Markers_clusterResolution0.6_VU40T_combined.png"),
+    width = 12, height = 4, units = "in", res = 300)
+
+  p <- DotPlot(
+    VU40T.combined,
+    features = genelist,
+    group.by = "seurat_clusters",
+  ) +
+    scale_x_discrete(labels = function(x) stringr::str_to_title(x)) +
+    RotatedAxis() +
+    scale_color_gradient(low = "lightgrey", high = "red") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.text.y = element_text(face = "italic")  # Optional: italics for gene names
+    ) + labs(y = "Clusters")  # 👈 Relabel y-axis
+  print(p)  
+  dev.off()
+
+  ## fibroblast heatmap
+  # heatmap_markers <- read.csv("~/fibroblast_heatmap.csv", header = T)
+  fibro2_marker_ls <- list()
+  for (i in seq(1,3)){
+    fibro2_marker_ls[[i]] <- readxl::read_xlsx("~/Fibroblasts_dotplots_2.xlsx", sheet = i)
+  }
+  heatmap_markers <- fibro2_marker_ls[[1]]
+  ### for heatmap
+  # heatmap_markers <- genelist[, c(1:5)]
+  colnames(heatmap_markers) <- stringr::str_replace(colnames(heatmap_markers), "_", " ")
+  ## for fibro list 2
+  colnames(heatmap_markers) <- stringr::str_replace(colnames(heatmap_markers), "Oxid phosph", "Oxidative phosphorylation")
+  colnames(heatmap_markers) <- stringr::str_to_title(colnames(heatmap_markers))
+  colnames(heatmap_markers) <- stringr::str_replace(colnames(heatmap_markers), "Ecm", "ECM")
+  colnames(heatmap_markers) <- stringr::str_replace(colnames(heatmap_markers), "To", "to")
+  marker_long <- heatmap_markers %>%
+    tidyr::pivot_longer(cols = everything(), names_to = "Group", values_to = "Gene") %>%
+    dplyr::filter(!is.na(Gene) & Gene != "")
+  # Filter for genes that are present
+  marker_long <- marker_long %>% dplyr::filter(Gene %in% rownames(VU40T.combined))
+  
+  ### line wrapping func.
+  marker_long$Group <- sapply(marker_long$Group, function(x) {
+    if (nchar(x) > 15 && grepl(" ", x)) {
+      gsub(" ", "\n", x)  # replace . or _ with a line break
+    } else {
+      x  # keep as is
+    }
+  })
+  # Compute average expression
+  avg_expr <- AverageExpression(VU40T.combined, features = unique(marker_long$Gene), return.seurat = FALSE, assays = "RNA")$RNA
+  avg_expr@Dimnames[[2]] <- stringr::str_replace(avg_expr@Dimnames[[2]], "g", "")
+  # Order genes as in the original df
+  marker_long <- marker_long %>%
+    distinct(Gene, .keep_all = TRUE)  # drop duplicate entries
+  
+  # Reorder avg_expr to match marker order
+  avg_expr <- avg_expr[marker_long$Gene, ]
+  
+  scaled_expr <- t(scale(t(avg_expr)))
+  # Clip values to range [-2, 2] for visual clarity
+  scaled_expr[scaled_expr > 2] <- 2
+
+  grp <- as.character(marker_long$Group)
+  lev <- sort(unique(grp))
+  set.seed(123)
+  pal <- setNames(
+    circlize::rand_color(length(lev), distinct = TRUE),
+    lev
+  )
+  # pal <- structure(
+  #   circlize::rand_color(length(unique(grp))),
+  #   names = sort(unique(grp))
+  # )
+  
+  row_annot <- rowAnnotation(
+    Group = grp,                        
+    annotation_legend_param = list(
+                          Group = list(title = "Group") # legend title
+                        ))
+  
+  # # Annotation (for row group labels)
+  # row_annot <- rowAnnotation(
+  #   Group = anno_simple(
+  #     marker_long$Group,
+  #     col = structure(
+  #       circlize::rand_color(length(unique(marker_long$Group))),
+  #       names = unique(marker_long$Group)
+  #     ),
+  #     # This hides the text labels
+  #     gp = gpar(col = NA),
+  #     # show_annotation_name = FALSE
+  #   ),
+  #   annotation_legend_param = list(
+  #     Group = list(title = "Group") # legend title
+  #   )
+  # )
+  # 
+  # Select 3-color palette from RColorBrewer
+  color_palette <- RColorBrewer::brewer.pal(n = 3, name = "YlOrRd")
+  
+  # Build color function
+  col_fun <- colorRamp2(
+    breaks = c(-2, 0, 2),
+    colors = color_palette
+  )
+  png(file = file.path(
+    git_dir,
+    "Integrated/Mouse/Plots/Heatmap_FibroMarkers_set2_clusterResolution0.6_VU40T_combined.png"),
+    width = 8, height = 14, units = "in", res = 300)
+  p <- Heatmap(
+    matrix = as.matrix(scaled_expr),
+    name = "Z-scaled Expr",
+    cluster_rows = FALSE,
+    cluster_columns = TRUE,
+    show_row_names = T,
+    show_column_names = TRUE,
+    row_names_gp = gpar(fontsize = 8),
+    column_names_gp = gpar(fontsize = 10),
+    column_names_rot = 0,
+    row_split = marker_long$Group,      # still split by group
+    row_title = NULL,                   # <- hide group slice labels
+    row_title_gp = gpar(fontsize = 0),  # <- belt-and-braces: ensure invisible
+    left_annotation = row_annot,
+    col = col_fun,
+    heatmap_legend_param = list(title = "Z-scaled\nExpression", fontsize = 8),
+    use_raster = TRUE,
+  )
+  ## because it's mouse let's modify gene names so they fit convention: sentence case
+  p@row_names_param[["labels"]] <- stringr::str_to_sentence(p@row_names_param[["labels"]])
+  p@row_names_param[["anno"]]@var_env[["value"]] <- stringr::str_to_sentence(p@row_names_param[["anno"]]@var_env[["value"]])
+  
+  draw(p,   padding = unit(c(10, 20, 10, 10), "mm"))  # prevent clipping
+  dev.off()
+
+  ### violinplot
+  
+  ViolinGenes <- fibro2_marker_ls[[2]]
+  # make sure header gets included in vector
+  colname <- colnames(ViolinGenes)[1]
+  ViolinGenes <- c(colname, as.character(ViolinGenes[[1]]))
+  png(file = file.path(
+    git_dir,
+    "Integrated/Mouse/Plots/ViolinPlot_FibroMarkers_set2_clusterResolution0.6_VU40T_combined.png"),
+    width = 9, height = 7, units = "in", res = 300)
+  p <- VlnPlot(
+        VU40T.combined,
+        features = ViolinGenes,
+       alpha = 1, pt.size = 0
+      )
+  for (i in seq_along(p)){
+    p[[i]][["labels"]][["title"]] <- stringr::str_to_sentence(p[[i]][["labels"]][["title"]])
+    p[[i]][["labels"]][["x"]] <- "Cluster"
+  } 
+  print(p)
+  dev.off()
+  
+  ### overlay umaps
+  
+  umap_markers <- fibro2_marker_ls[[3]]
+  colname <- colnames(umap_markers)[1]
+  umap_markers <- c(colname, as.character(umap_markers[[1]]))
+  ### FOC and ZBTB7 not found in data but ZBTB7 has A and B subunit 
+  umap_markers <- stringr::str_replace(umap_markers,"ZBTB7", "ZBTB7A")
+  umap_markers<- append(umap_markers, "ZBTB7B")
+  ## maybe FOC should be FOS?
+  umap_markers <- stringr::str_replace(umap_markers,"FOC", "FOS")
+  
+  png(file = file.path(
+    git_dir,
+    "Integrated/Mouse/Plots/Marker_Overlay_UMAPs_FibroMarkers_set2_clusterResolution0.6_VU40T_combined.png"),
+    width = 12, height = 12, units = "in", res = 300)
+  p <- FeaturePlot(VU40T.combined, 
+                   features = umap_markers, 
+                   label = T)
+  for (i in seq_along(p)){
+    p[[i]][["labels"]][["title"]] <- stringr::str_to_sentence(p[[i]][["labels"]][["title"]])
+  } 
+  print(p)
+  dev.off()
+}
+#test
+
+
+### CSC EMT_geneList
+
+if (all(VU40T.combined$species == "Human")){
+  
+  genelist <- read.csv(file.path(proj_dir, "scRNAseqAnalysis/CSC_EMT_markers.csv"), header = T)
+  # genelist[] <- lapply(genelist, function(x) gsub("CDH2", "", x))
+  colnames(genelist) <- gsub("_", " ", colnames(genelist))
+  ## convert to named vectors
+  genevectors <- lapply(genelist, function(x) unique(x[x != "" & !is.na(x)]))
+  
+  png(file = file.path(
+    git_dir,
+    "Integrated/Plots/CombinedDotplot_CSC_EMT_Markers_clusterResolution0.3_VU40T_combined.png"),
+    width = 8, height = 4, units = "in", res = 300)
+
+  p <- DotPlot(
+    VU40T.combined,
+    features = genevectors,
+    group.by = "seurat_clusters",
+  ) +
+    RotatedAxis() +
+    scale_color_gradient(low = "lightgrey", high = "red") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.text.y = element_text(face = "italic")  # Optional: italics for gene names
+    ) + labs(y = "Clusters")  # 👈 Relabel y-axis
+  print(p)  
+  dev.off()
+  
+  
+  ViolinGENEs <- c("CD44", "MET", "ALDH1A3", "COL17A1", "CDKN1A", "FOS", "JUN", "ID1", "ATF3", "BTG2", "DUSP1")
+  
+  png(file = file.path(
+    git_dir,
+    "Integrated/Plots/ViolinPlot_CSC_EPI_Markers_clusterResolution0.3_VU40T_combined.png"),
+    width = 12, height = 8, units = "in", res = 300)
+  
+  p <- VlnPlot(
+    VU40T.combined,
+    features = ViolinGENEs,
+    alpha = 1, pt.size = 0
+  )
+  
+  print(p)
+  dev.off()
+  
+  basalGENES <-  c("COL17A1", "CDKN1A", "FOS", "JUN", "ID1", "ATF3", "BTG2", "DUSP1")
+  
+  png(file = file.path(
+    git_dir,
+    "Integrated/Plots/ViolinPlot_Basal_Markers_clusterResolution0.3_VU40T_combined.png"),
+    width = 6, height = 8, units = "in", res = 300)
+  
+  p <- VlnPlot(
+    VU40T.combined,
+    features = basalGENES,
+    alpha = 1, pt.size = 0,
+    idents = c(0,1,2,5)
+  )
+  
+  print(p)
+  dev.off()
+}
 for (i in seq_len(ncol(genelist))) {
   gene_vector <- na.omit(genelist[[i]])  # extract column as vector and remove NAs
   
@@ -755,9 +1074,7 @@ print(percent_expressing_df)
 
 FeaturePlot(VU40T.combined, features = "RHOA", label = T)
 
-gene
 make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_epi_fibro"))
-
 
 
 
