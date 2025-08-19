@@ -8,7 +8,17 @@ library(ggplot2)
 library(ggridges)
 library(biomaRt)
 library(parallelly)
+library(argparse)
 
+
+# ── Get Args ─────────────────────────────────────────────────────
+
+parser <- ArgumentParser(description='Run Pseudotime Analysis on Mouse Fibroblast Cells')
+parser$add_argument('-r', '--root_cluster', default = 9, type="integer",
+                    help='set root cluster num for analysis: \n
+                    9 for proliferating cells, 0 for undifferentiated cells')
+
+argv <- parser$parse_args()
 # ── Core detection ───────────────────────────────────────────────
 cores_to_use <- max(1, parallelly::availableCores() - 1)
 message("🧠 Using ", cores_to_use, " core(s) for graph_test().")
@@ -25,6 +35,12 @@ dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 # ── Load Data ─────────────────────────────────────────────────────
 VU40T.combined <- readRDS(file.path(cache_dir, "VU40T_combined_joined_0.6_res_mouseOnly.rds"))
 
+# Get rid of contaminating Epithelial cluster 13
+# though it has no bearing on the pseudotime analysis as it is completely seperate from all other clusters
+
+VU40T.combined <- subset(VU40T.combined, idents = "13", invert = T)
+
+
 cds <- as.cell_data_set(VU40T.combined)
 fData(cds)$gene_short_name <- rownames(fData(cds))
 
@@ -36,13 +52,15 @@ cds@clusters@listData[["UMAP"]][["clusters"]] <- VU40T.combined@active.ident
 cds@int_colData@listData[["reducedDims"]]@listData[["UMAP"]] <- VU40T.combined@reductions$umap@cell.embeddings
 
 # ── Trajectory: Learn graph ──────────────────────────────────────
-cds <- cluster_cells(cds)
+root_cluster <- argv$root_cluster
 cds <- learn_graph(cds, use_partition = FALSE)
 
 # ── Plot trajectory (before ordering) ────────────────────────────
-png(file.path(plot_dir, "Fibro_pseudoTime_trajectory_non_ordered.png"), width = 8, height = 4, units = "in", res = 300)
+png(file.path(plot_dir, 
+                paste0("Fibro_pseudoTime_root_clust_", root_cluster , "_trajectory_non_ordered.png")
+                ), width = 8, height = 4, units = "in", res = 300)
 p1 <- plot_cells(cds, color_cells_by = "cluster", label_groups_by_cluster = FALSE,
-                 label_branch_points = TRUE, label_roots = TRUE, label_leaves = FALSE,
+                 label_branch_points = F, label_roots = TRUE, label_leaves = FALSE,
                  group_label_size = 5)
 print(p1)
 dev.off()
@@ -51,39 +69,25 @@ dev.off()
 # Get all Seurat clusters
 
 # Order pseudotime using those cells
+message("Root cluster set to: ", root_cluster, "for this pseudotime analysis")
+root_cells <- colnames(cds[, clusters(cds) == root_cluster])
 
-# Manual override if needed
-manual_root <- TRUE
-root_cluster <- 3  # manually selected based on UMAP inspection
-
-if (manual_root) {
-  root_cells <- colnames(cds[, clusters(cds) == root_cluster])
-} else {
-  # default to lowest UMAP_1 cluster
-  umap_df <- as.data.frame(reducedDims(cds)$UMAP)
-  colnames(umap_df) <- c("UMAP_1", "UMAP_2")
-  umap_df$cluster <- VU40T.combined$seurat_clusters
-  root_cluster <- umap_df %>%
-    group_by(cluster) %>%
-    summarise(mean_umap1 = mean(UMAP_1)) %>%
-    arrange(mean_umap1) %>%
-    pull(cluster) %>%
-    dplyr::first()
-  root_cells <- colnames(cds[, clusters(cds)$seurat_clusters == root_cluster])
-}
 
 cds <- order_cells(cds, reduction_method = "UMAP", root_cells = root_cells)
 
 
 # ── Plot ordered trajectory ──────────────────────────────────────
-p1 <- plot_cells(cds, color_cells_by = "cluster", label_groups_by_cluster = FALSE,
-                 label_branch_points = TRUE, label_roots = TRUE, label_leaves = FALSE,
-                 group_label_size = 5)
-p2 <- plot_cells(cds, color_cells_by = "pseudotime", label_groups_by_cluster = TRUE,
-                 label_branch_points = TRUE, label_roots = FALSE, label_leaves = FALSE,
-                 group_label_size = 5)
+p1 <- plot_cells(cds, color_cells_by = "cluster", label_groups_by_cluster = F,
+           label_branch_points = F, label_roots = F, label_leaves = F,
+           group_label_size = 5, label_principal_points = F, trajectory_graph_segment_size = 2)
 
-png(file.path(plot_dir, "Fibro_pseudoTime_trajectory_ordered.png"), width = 8, height = 4, units = "in", res = 300)
+p2 <- plot_cells(cds, color_cells_by = "pseudotime", label_groups_by_cluster = T,
+           label_branch_points = F, label_roots = F, label_leaves = F, group_label_size = 5, 
+           label_principal_points = F, trajectory_graph_segment_size = 2)
+
+png(file.path(plot_dir, 
+    paste0("Fibro_pseudoTime_root_clust_", root_cluster ,"_trajectory_ordered.png")
+    ), width = 8, height = 4, units = "in", res = 300)
 print(p1 + p2)
 dev.off()
 
@@ -92,7 +96,9 @@ cds$monocle3_pseudotime <- pseudotime(cds)
 VU40T.combined$pseudotime <- cds$monocle3_pseudotime
 data.pseudo <- as.data.frame(colData(cds))
 
-png(file.path(plot_dir, "Fibro_pseudoTime_trajectory_boxplot_ordered.png"), width = 8, height = 4, units = "in", res = 300)
+png(file.path(plot_dir, 
+    paste0("Fibro_pseudoTime_trajectory_root_clust_", root_cluster ,"_boxplot_ordered.png")
+    ), width = 8, height = 4, units = "in", res = 300)
 p_box <- ggplot(data.pseudo, aes(monocle3_pseudotime, reorder(seurat_clusters, monocle3_pseudotime), fill = seurat_clusters)) +
   geom_boxplot() +
   xlab("Monocle3 Pseudotime") +
@@ -112,14 +118,14 @@ deg <- tryCatch({
 
 if (!is.null(deg)) {
   passqc_deg <- deg %>% arrange(q_value) %>% filter(status == "OK")
-  write.csv(passqc_deg, file = file.path(plot_dir, "fibroblast_PASS_QC_pseudotime_degs.csv"), row.names=FALSE)
+  write.csv(passqc_deg, file = file.path(plot_dir, paste0("fibroblast_root_clust_", root_cluster ,"_PASS_QC_pseudotime_degs.csv")), row.names=FALSE)
   message("✅ DEG results saved.")
 } else {
   warning("⚠️ graph_test() failed — skipping DEG save.")
 }
 
 # ── Save final Seurat object ─────────────────────────────────────
-saveRDS(VU40T.combined, file = file.path(cache_dir, "VU40T_Fibroblast_withpseudotime.RDS"))
+saveRDS(VU40T.combined, file = file.path(cache_dir, paste0("VU40T_Fibroblast_withpseudotime_rootclust_", root_cluster, ".RDS")))
 message("💾 Seurat object with pseudotime saved.")
 
 # # Get top 5 significant genes with 'OK' status

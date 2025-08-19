@@ -294,16 +294,6 @@ if (is.null(deg)) {
   message("✅ graph_test results saved successfully.")
 }
 
-# Get top 5 significant genes with 'OK' status
-top_genes <- passqc_deg %>%
-  arrange(q_value) %>%
-  filter(status == "OK") %>%
-  head(5) %>%
-  pull(gene_short_name)  # or use `row.names(.)` if gene names are rownames
-
-# Plot them
-FeaturePlot(epis, features = top_genes, label = T)
-
 
 
 pseudotime_marker_list <- as.vector(t(read.csv(file.path(git_dir, "Integrated/pseudotime_genes_umap.csv"),header = F)))
