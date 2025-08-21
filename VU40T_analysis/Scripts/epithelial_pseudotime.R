@@ -18,38 +18,7 @@ message("🧠 Using ", cores_to_use, " core(s) for graph_test().")
 make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, pseudo_order = FALSE){
   colnames(genelist) <- gsub("[._]", " ", colnames(genelist))
   ## revert to whitespaces if whitespaces in original colname or change underscores to whitespace
-  if (all(seurat_obj$species == "Mouse")){
-    
-    # Connect to Ensembl human mart (homolog info is already stored here)
-    human <- useEnsembl(
-      biomart = "genes", 
-      dataset = "hsapiens_gene_ensembl", 
-      host = "https://www.ensembl.org"  # pick a mirror to avoid overload
-    )
-    
-    # Your input gene list
-    all_genes <- unique(unlist(genelist))
-    
-    # ✅ These attributes are from the *same attribute page* (homologs)
-    conversion <- getBM(
-      attributes = c("external_gene_name", "mmusculus_homolog_associated_gene_name"),
-      filters    = "external_gene_name",
-      values     = all_genes,
-      mart       = human
-    )
-    
-    # Build mapping dict: human → mouse
-    human_to_mouse <- setNames(
-      toupper(conversion$mmusculus_homolog_associated_gene_name),
-      conversion$external_gene_name
-    )
-    
-    # Clean NAs or empty values
-    human_to_mouse <- human_to_mouse[human_to_mouse != "" & !is.na(human_to_mouse)]
-    # sanity check
-    # head(human_to_mouse)
-  }
-  
+
   if (pseudo_order == TRUE) {
     ## Order clusters in pseudotime:
     cluster_order <- seurat_obj@meta.data %>%
@@ -62,19 +31,11 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, ps
     seurat_obj$seurat_clusters <- factor(seurat_obj$seurat_clusters, levels = cluster_order)
     
     # Set output prefix for pseudotime plots
-    if (all(seurat_obj$species == "Human")) {
       marker_plot_dir_prefix <- "Pseudotime_humanOnly/HumanONLY_Pseudotime_"
-    } else {
-      marker_plot_dir_prefix <- "Pseudotime_mouseOnly/MouseONLY_Pseudotime_"
-    }
     
   } else {
     # Not using pseudotime ordering, set standard output prefix
-    if (all(seurat_obj$species == "Human")) {
       marker_plot_dir_prefix <- "MarkerDotplots/HumanONLY/Res0.3/HumanONLY_"
-    } else {
-      marker_plot_dir_prefix <- "MouseONLY_MarkerDotplots/"
-    }
   }
   
   
@@ -100,23 +61,23 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, ps
     
     # Skip if final gene set is empty
     if (length(gene_set) == 0) next
-    
-    # Generate dot plot
-    p <- DotPlot(seurat_obj, features = gene_set, group.by = "seurat_clusters") +
-      RotatedAxis() +
-      ggplot2::ggtitle(colnames(genelist)[i]) +
-      theme(
-        axis.text.x = element_text(size = 9)  # or try size = 6 or 7
-      )
-    
-    # Modify x-axis labels to Title Case if using mouse data
-    if (all(seurat_obj$species == "Mouse")){
-      p <- p + scale_x_discrete(labels = function(x) tools::toTitleCase(tolower(x)))
+    if (colnames(genelist)[i] != "Maturation Trajectory TFs"){
+      # Generate dot plot
+      p <- DotPlot(seurat_obj, features = gene_set, group.by = "seurat_clusters") +
+        RotatedAxis() +
+        ggplot2::ggtitle(colnames(genelist)[i]) +
+        scale_color_gradient(low = "lightgrey", high = "red") +
+        theme(
+          axis.text.x = element_text(angle = 45, hjust = 1)) + 
+        labs(x = "Genes", y = "Clusters")  # Relabel axes
+    } else {
+      p <- DotPlot(seurat_obj, features = gene_set, group.by = "seurat_clusters") +
+        coord_flip() +
+        ggplot2::ggtitle(colnames(genelist)[i]) +
+        scale_color_gradient(low = "lightgrey", high = "red") +
+        labs(x = "Genes", y = "Clusters")  # Relabel axes
     }
-    
 
-    
-    
     # Export or print
     if (export) {
       
@@ -127,20 +88,22 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, ps
         plot_width <- min(max(2 * num_genes + 4, 10), 50)
       }
       colnames(genelist) <- gsub(" ", "_", colnames(genelist))
-      
-      if (all(seurat_obj$species == "Human")) {
-        png(file = file.path(
-          git_dir,
-          paste0("Integrated/Plots/", marker_plot_dir_prefix ,"Dotplot_clusterResolution0.3_",
-                 outPrefix, "_", colnames(genelist)[i], "_VU40T_combined.png")),
-          width = plot_width, height = 4, units = "in", res = 300)
-      } else {
-        png(file = file.path(
-          git_dir,
-          paste0("Integrated/Mouse/Plots/", marker_plot_dir_prefix, "Dotplot_clusterResolution0.6_",
-                 outPrefix, "_", colnames(genelist)[i], "_VU40T_combined.png")),
-          width = plot_width, height = 4, units = "in", res = 300)
-      }
+        if(colnames(genelist)[i] != "Maturation Trajectory TFs"){
+          png(file = file.path(
+            git_dir,
+            paste0("Integrated/Plots/", marker_plot_dir_prefix ,"Dotplot_clusterResolution0.3_",
+                   outPrefix, "_", colnames(genelist)[i], "_VU40T_combined.png")),
+            width = plot_width, height = 4, units = "in", res = 300)
+        } else { 
+          ## axis flipped for maturation trajectory TFs so dims should be flipped
+          png(file = file.path(
+            git_dir,
+            paste0("Integrated/Plots/", marker_plot_dir_prefix ,"Dotplot_clusterResolution0.3_",
+                   outPrefix, "_", colnames(genelist)[i], "_VU40T_combined.png")),
+            height = plot_width, width = 4, units = "in", res = 300)
+        }
+
+
       colnames(genelist) <- gsub("[._]", " ", colnames(genelist))
       print(p)
       dev.off()
@@ -295,7 +258,7 @@ if (is.null(deg)) {
 }
 
 
-
+epis <- readRDS(file.path(cache_dir, "VU40T_epithelial_withpseudotime.RDS"))
 pseudotime_marker_list <- as.vector(t(read.csv(file.path(git_dir, "Integrated/pseudotime_genes_umap.csv"),header = F)))
 
 ## remove empty strs from the transposition
@@ -342,7 +305,7 @@ dev.off()
 
 ### trajectory dotplots
 
-marker_list_dp <- read.csv(file.path(git_dir, "Integrated/TF_trajectory_dotplot_markers.csv"))
+marker_list_dp <- read.csv(file.path(git_dir, "Integrated/TF_trajectory_dotplot_markers.csv"), encoding = "UTF-8", check.names = FALSE, stringsAsFactors = FALSE)
 
 
 make_marker_dotplots(epis, marker_list_dp, export = T, outPrefix = "TF_trajectory_markers", pseudo_order = TRUE)

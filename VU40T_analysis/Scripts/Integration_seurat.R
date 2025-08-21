@@ -101,7 +101,11 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T){
     # Generate dot plot
     p <- DotPlot(seurat_obj, features = gene_set, group.by = "seurat_clusters") +
       RotatedAxis() +
-      ggplot2::ggtitle(colnames(genelist)[i])
+      ggplot2::ggtitle(colnames(genelist)[i]) +
+      scale_color_gradient(low = "lightgrey", high = "red") +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1)) + 
+      labs(x = "Genes", y = "Clusters")  # Relabel axes
     
     # Modify x-axis labels to Title Case if using mouse data
     if (all(seurat_obj$species == "Mouse")){
@@ -682,6 +686,38 @@ dev.off()
 if (all(VU40T.combined$species == "Mouse")){
   VU40T.combined <- subset(VU40T.combined, idents = "13", invert = TRUE)
   Species = "Mouse"
+  
+  ## make stacked barplot of num fibroblasts per clust
+  clust_cell_df <- as.data.frame(table(VU40T.combined$seurat_clusters))
+  colnames(clust_cell_df) <- c("Cluster", "No. Cells")
+  write.csv(clust_cell_df, file = file.path(git_dir, "Integrated/Mouse/MouseOnly_fibroblast_cells_per_clust.csv"))
+  clust_cell_df$`Cell Type` <- "Fibroblast"
+  ## plot barplot
+  
+  png(file = file.path(
+    git_dir,
+    "Integrated/Mouse/Plots/MouseONLY_Stacked_Bar_numCells_per_cluster_Resolution0.6_VU40T_combined.png"),
+    width = 4, height = 6, units = "in", res = 300)
+  
+  p <- clust_cell_df %>% 
+        ggplot(aes(x = `Cell Type`, y = `No. Cells`, fill = Cluster)) + 
+        geom_bar(position="stack", stat="identity") + 
+        theme_minimal() + xlab("")
+  print(p)
+  dev.off()
+  
+  png(file = file.path(
+    git_dir,
+    "Integrated/Mouse/Plots/MouseONLY_Stacked_Bar_percent_Cells_per_cluster_Resolution0.6_VU40T_combined.png"),
+    width = 4, height = 6, units = "in", res = 300)
+  p <- clust_cell_df %>% 
+    ggplot(aes(x = `Cell Type`, y = `No. Cells`, fill = Cluster)) + 
+    geom_bar(position="fill", stat="identity") + 
+    theme_minimal() +
+    ylab("Proportion of Cells") + xlab("") + 
+    scale_y_continuous(labels = scales::percent)
+  print(p)
+  dev.off()
   genelist <- read.csv("~/Fibroblasts_dotplots_markers.csv", header = F)
   names(genelist) <- "Fibroblast Markers"
   
@@ -826,10 +862,14 @@ if (all(VU40T.combined$species == "Mouse")){
   # make sure header gets included in vector
   colname <- colnames(ViolinGenes)[1]
   ViolinGenes <- c(colname, as.character(ViolinGenes[[1]]))
+  ## add extra markers
+  ViolinGenes <- append(ViolinGenes, 
+                        values = c("ACTA2", "ISG15", "IRF7", "CKS2")
+                        )
   png(file = file.path(
     git_dir,
     "Integrated/Mouse/Plots/ViolinPlot_FibroMarkers_set2_clusterResolution0.6_VU40T_combined.png"),
-    width = 9, height = 7, units = "in", res = 300)
+    width = 12, height = 7, units = "in", res = 300)
   p <- VlnPlot(
         VU40T.combined,
         features = ViolinGenes,
@@ -859,7 +899,9 @@ if (all(VU40T.combined$species == "Mouse")){
     width = 12, height = 12, units = "in", res = 300)
   p <- FeaturePlot(VU40T.combined, 
                    features = umap_markers, 
-                   label = T)
+                   label = F,# label.size = 3, repel = T,
+                   ) & 
+    scale_color_viridis_c()
   for (i in seq_along(p)){
     p[[i]][["labels"]][["title"]] <- stringr::str_to_sentence(p[[i]][["labels"]][["title"]])
   } 
