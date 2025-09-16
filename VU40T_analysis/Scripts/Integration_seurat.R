@@ -16,18 +16,26 @@ library(circlize)  # for colors)
 library(RColorBrewer)
 
 
-git_dir <- "~/OralMucosa/VU40T_analysis"
 
 
 ## to avoid hitting that 20gb quota on my home dir,
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
+analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
+git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
 cache_dir <- file.path(proj_dir, "rds_cache")
 
-## check for cache dir
+## check for dirs
 if(!(dir.exists(cache_dir))){
   dir.create(cache_dir, recursive = T)
 }
 
+if(!(dir.exists(analysis_dir))){
+  dir.create(analysis_dir, recursive = T)
+}
+
+if(!(dir.exists(git_dir))){
+  dir.create(git_dir, recursive = T)
+}
 ### funcs
 
 
@@ -73,7 +81,7 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T){
     # sanity check
     # head(human_to_mouse)
   }
-
+  
   
   for (i in seq_along(genelist)) {
     # Extract non-NA genes from this column
@@ -235,18 +243,18 @@ if(species == "Mouse"){
     preIntegrationSeuratList[[i]] <- seurat_obj
   }
 }else{
-    for (i in seq_along(preIntegrationSeuratList)) {
-      
-      seurat_obj <- preIntegrationSeuratList[[i]]
-      
-      # Keep only cells from dominant species
-      cells_to_keep <- colnames(seurat_obj)[seurat_obj$species == "Human"]
-      
-      # Subset Seurat object
-      seurat_obj <- subset(seurat_obj, cells = cells_to_keep)
-      
-      # Store it back
-      preIntegrationSeuratList[[i]] <- seurat_obj
+  for (i in seq_along(preIntegrationSeuratList)) {
+    
+    seurat_obj <- preIntegrationSeuratList[[i]]
+    
+    # Keep only cells from dominant species
+    cells_to_keep <- colnames(seurat_obj)[seurat_obj$species == "Human"]
+    
+    # Subset Seurat object
+    seurat_obj <- subset(seurat_obj, cells = cells_to_keep)
+    
+    # Store it back
+    preIntegrationSeuratList[[i]] <- seurat_obj
   }
 }
 
@@ -272,7 +280,7 @@ VU40T.combined <- ScaleData(VU40T.combined, verbose = F)
 
 VU40T.combined <- RunPCA(VU40T.combined, npcs = 50, verbose = F)
 
-     
+
 
 #checkpoint
 saveRDS(VU40T.combined, file = file.path(cache_dir, "VU40T_combined_preRECLUSTER_human_ONLY.rds"))
@@ -467,7 +475,7 @@ if (all(VU40T.combined$species == "Human")){
   seu_epi <- SetAssayData(seu_epi, slot = "data", new.data = logcounts_epi)
   seu_ref <- seu_epi
   rm(list = c(seu_epi, counts_epi, logcounts_epi, metadata_epi))
-  }
+}
 
 if (all(VU40T.combined$species == "Mouse")){
   sce_HCATonsil_mesenchymal <- HCATonsilData(assayType = "RNA", cellType = "FDC")
@@ -637,6 +645,77 @@ if (all(VU40T.combined$species == "Human")){
   )
   draw(p,   padding = unit(c(10, 20, 10, 10), "mm"))  # prevent clipping
   dev.off()
+  
+  ### UMAP overlays in viridis
+  
+  umap_markers <- c("KRT6A",
+                    "DSC3",
+                    "CDH1",
+                    "ITGB1",
+                    "LAMB3",
+                    "ITGAV",
+                    "HAS2",
+                    "TRIO",
+                    "RHOA",
+                    "KRT81",
+                    "CLDN1",
+                    "EPCAM",
+                    "GCLM"
+  )
+  
+  png(file = file.path(
+    git_dir,
+    "Integrated/Plots/Marker_Overlay_UMAPs_EpiMarkers_Viridis_clusterResolution0.3_VU40T_combined.png"),
+    width = 14, height = 14, units = "in", res = 300)
+  p <- FeaturePlot(VU40T.combined, 
+                   features = umap_markers, 
+                   label = F,# label.size = 3, repel = T,
+  ) & 
+    scale_color_viridis_c()
+  print(p)
+  dev.off()
+  ### new human doplots
+  genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_2.xlsx"), sheet = 8)
+  make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_onlySET3_Epithelial"))
+ 
+  a ### and violin plots
+  genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_2.xlsx"), sheet = 9,col_names = F)
+  make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_onlySET3_Epithelial"))
+  
+  
+  for (col in seq_len(ncol(genelist))) {
+    png(file = file.path(
+      git_dir,
+      paste0("Integrated/Plots/ViolinPlot_EpiMarkers_set3_clusterResolution0.3_VU40T_combined",col,".png")),
+      width = 6, height = 10, units = "in", res = 300)
+    p <- VlnPlot(
+      VU40T.combined,
+      features = na.omit(genelist[[col]]),
+      alpha = 1, pt.size = 0,
+      combine = FALSE
+    ) 
+    
+    # remove legends + tighten margins
+    p <- lapply(p, function(pp) {
+      pp + theme(
+        legend.position = "none",
+        plot.margin = margin(2, 0.5, 2, 1),
+        axis.text.x = element_text(size = 10, angle = 0, hjust = 0.5),
+        axis.text.y = element_text(size = 10, angle = 0, vjust = 0.5),
+      )
+    })
+    
+    for (i in seq_along(p)){
+      p[[i]][["labels"]][["x"]] <- ""
+      p[[i]][["labels"]][["y"]] <- ""
+    } 
+    
+    p_stack <- wrap_plots(p, ncol = 2, nrow = 5,  guides = "collect")
+    
+    print(p_stack)
+    dev.off()
+  }
+  
 }
 ## genelist 3 -> mouse and human epithelial, fibroblast and EMT markers
 genelist <- as.data.frame(read.csv("~/Markers_for_dotplots_2_ep_2nd_set.csv", header = T, skip = 1))
@@ -646,7 +725,7 @@ genelist[] <- lapply(genelist, function(x) gsub("CDH2", "", x))
 if (all(VU40T.combined$species == "Mouse")){
   genelist <- genelist[, c(4,5)] ## both human and mouse markers w/out emt
   colnames(genelist) <- gsub("_[HM]", "", colnames(genelist))
-
+  
 }else{
   genelist <- genelist[, c(1:2)] ## both human and mouse markers, no need for EMT here
   colnames(genelist) <- gsub("_[HM]", "", colnames(genelist))
@@ -670,16 +749,16 @@ if (all(VU40T.combined$species == "Human")){
 }
 
 p <- DotPlot(
-      VU40T.combined,
-      features = genevectors,
-      group.by = "seurat_clusters",
-    ) +
-    RotatedAxis() +
-    scale_color_gradient(low = "lightgrey", high = "red") +
-    theme(
-      axis.text.x = element_text(angle = 45, hjust = 1),
-      axis.text.y = element_text(face = "italic")  # Optional: italics for gene names
-    ) + labs(y = "Clusters")  # 👈 Relabel y-axis
+  VU40T.combined,
+  features = genevectors,
+  group.by = "seurat_clusters",
+) +
+  RotatedAxis() +
+  scale_color_gradient(low = "lightgrey", high = "red") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(face = "italic")  # Optional: italics for gene names
+  ) + labs(y = "Clusters")  # 👈 Relabel y-axis
 print(p)  
 dev.off()
 
@@ -700,9 +779,9 @@ if (all(VU40T.combined$species == "Mouse")){
     width = 4, height = 6, units = "in", res = 300)
   
   p <- clust_cell_df %>% 
-        ggplot(aes(x = `Cell Type`, y = `No. Cells`, fill = Cluster)) + 
-        geom_bar(position="stack", stat="identity") + 
-        theme_minimal() + xlab("")
+    ggplot(aes(x = `Cell Type`, y = `No. Cells`, fill = Cluster)) + 
+    geom_bar(position="stack", stat="identity") + 
+    theme_minimal() + xlab("")
   print(p)
   dev.off()
   
@@ -725,7 +804,7 @@ if (all(VU40T.combined$species == "Mouse")){
     git_dir,
     "Integrated/Mouse/Plots/MouseONLY_MarkerDotplots/Dotplot_Fibro_Markers_clusterResolution0.6_VU40T_combined.png"),
     width = 12, height = 4, units = "in", res = 300)
-
+  
   p <- DotPlot(
     VU40T.combined,
     features = genelist,
@@ -740,12 +819,12 @@ if (all(VU40T.combined$species == "Mouse")){
     ) + labs(y = "Clusters")  # 👈 Relabel y-axis
   print(p)  
   dev.off()
-
+  
   ## fibroblast heatmap
   # heatmap_markers <- read.csv("~/fibroblast_heatmap.csv", header = T)
   fibro2_marker_ls <- list()
-  for (i in seq(1,3)){
-    fibro2_marker_ls[[i]] <- readxl::read_xlsx("~/Fibroblasts_dotplots_2.xlsx", sheet = i)
+  for (i in seq(1,6)){
+    fibro2_marker_ls[[i]] <- readxl::read_xlsx(file.path(proj_dir ,"/scRNAseqAnalysis/Fibroblasts_dotplots.xlsx"), sheet = i)
   }
   heatmap_markers <- fibro2_marker_ls[[1]]
   ### for heatmap
@@ -783,7 +862,7 @@ if (all(VU40T.combined$species == "Mouse")){
   scaled_expr <- t(scale(t(avg_expr)))
   # Clip values to range [-2, 2] for visual clarity
   scaled_expr[scaled_expr > 2] <- 2
-
+  
   grp <- as.character(marker_long$Group)
   lev <- sort(unique(grp))
   set.seed(123)
@@ -791,34 +870,16 @@ if (all(VU40T.combined$species == "Mouse")){
     circlize::rand_color(length(lev), distinct = TRUE),
     lev
   )
-  # pal <- structure(
-  #   circlize::rand_color(length(unique(grp))),
-  #   names = sort(unique(grp))
-  # )
+  
   
   row_annot <- rowAnnotation(
     Group = grp,                        
     annotation_legend_param = list(
-                          Group = list(title = "Group") # legend title
-                        ))
+      Group = list(title = "Group") # legend title
+    ))
   
   # # Annotation (for row group labels)
-  # row_annot <- rowAnnotation(
-  #   Group = anno_simple(
-  #     marker_long$Group,
-  #     col = structure(
-  #       circlize::rand_color(length(unique(marker_long$Group))),
-  #       names = unique(marker_long$Group)
-  #     ),
-  #     # This hides the text labels
-  #     gp = gpar(col = NA),
-  #     # show_annotation_name = FALSE
-  #   ),
-  #   annotation_legend_param = list(
-  #     Group = list(title = "Group") # legend title
-  #   )
-  # )
-  # 
+  
   # Select 3-color palette from RColorBrewer
   color_palette <- RColorBrewer::brewer.pal(n = 3, name = "YlOrRd")
   
@@ -855,52 +916,144 @@ if (all(VU40T.combined$species == "Mouse")){
   
   draw(p,   padding = unit(c(10, 20, 10, 10), "mm"))  # prevent clipping
   dev.off()
-
+  
   ### violinplot
   
-  ViolinGenes <- fibro2_marker_ls[[2]]
+  ViolinGenes <- fibro2_marker_ls[[4]]
   # make sure header gets included in vector
   colname <- colnames(ViolinGenes)[1]
   ViolinGenes <- c(colname, as.character(ViolinGenes[[1]]))
   ## add extra markers
   ViolinGenes <- append(ViolinGenes, 
-                        values = c("ACTA2", "ISG15", "IRF7", "CKS2")
-                        )
+                        values = c( # "ACTA2", <- wasn't that informative, all show minimal expression
+                          "P4HA1", "CTSD")
+  )
   png(file = file.path(
     git_dir,
     "Integrated/Mouse/Plots/ViolinPlot_FibroMarkers_set2_clusterResolution0.6_VU40T_combined.png"),
-    width = 12, height = 7, units = "in", res = 300)
+    width = 6, height = 10, units = "in", res = 300)
   p <- VlnPlot(
-        VU40T.combined,
-        features = ViolinGenes,
-       alpha = 1, pt.size = 0
-      )
+    VU40T.combined,
+    features = ViolinGenes,
+    alpha = 1, pt.size = 0,
+    combine = FALSE
+  ) 
+  
+  # remove legends + tighten margins
+  p <- lapply(p, function(pp) {
+    pp + theme(
+      legend.position = "none",
+      plot.margin = margin(2, 0.5, 2, 1),
+      axis.text.x = element_text(size = 10, angle = 0, hjust = 0.5),
+      axis.text.y = element_text(size = 10, angle = 0, vjust = 0.5),
+    )
+  })
+  
   for (i in seq_along(p)){
     p[[i]][["labels"]][["title"]] <- stringr::str_to_sentence(p[[i]][["labels"]][["title"]])
-    p[[i]][["labels"]][["x"]] <- "Cluster"
+    p[[i]][["labels"]][["x"]] <- ""
+    p[[i]][["labels"]][["y"]] <- ""
   } 
-  print(p)
+  
+  p_stack <- wrap_plots(p, ncol = 2, nrow = 5,  guides = "collect")
+  
+  print(p_stack)
   dev.off()
+  
+  ### v2 violinplots
+  
+  
+  ViolinGenes <- as.data.frame(fibro2_marker_ls[[5]])
+  
+  # desired height per subplot in inches
+  per_gene_height <- 1   
+  # 1) get a clean character vector of genes for this panel/column
+  for (panel in colnames(ViolinGenes)) {
+    # 1) get a clean character vector of genes for this panel/column
+    genes <- ViolinGenes[[panel]]
+    genes <- unique(na.omit(as.character(genes)))
+    # keep only genes present in the object
+    genes <- intersect(genes, rownames(VU40T.combined))
+    if (length(genes) == 0) next
+    
+    plots <- lapply(seq_along(genes), function(i) {
+      g <- genes[i]
+      gp <- VlnPlot(
+        VU40T.combined,
+        features = g,
+        group.by = "seurat_clusters",
+        pt.size  = 0,
+        combine  = TRUE
+      ) + 
+        NoLegend() +
+        labs(title = "", x = "",
+             y = stringr::str_to_sentence(tolower(g))) +
+        theme(
+          plot.title = element_text(face = "bold", hjust = 0.6, size = 14),
+          axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 1, size = 14),
+          axis.text.y = element_text(size = 8, angle = 0),
+          plot.margin = margin(2, 5, 2, 5)
+        )
+      
+      # Remove x-axis elements for all but the last plot
+      if (i < length(genes)) {
+        gp <- gp +
+          theme(
+            axis.title.x = element_blank(),
+            axis.text.x  = element_blank(),
+            axis.ticks.x = element_blank()
+          )
+      } else {
+        gp <- gp +
+          labs(x = "") +
+          theme(axis.text.x = element_text(angle = 0, hjust = 0.5))
+      }
+      gp
+    })
+    
+    # 3) stack vertically and add a global title
+    panel_chr <- as.character(panel)
+    p_stack <- wrap_plots(plots, ncol = 1, guides = "collect") +
+      plot_annotation(
+        title = panel_chr,
+        theme = theme(plot.title = element_text(hjust = 0.6, size = 16, face = "bold"))
+      )
+    
+    # output height = per-gene height * number of genes + extra for title
+    h_in <- per_gene_height * length(plots) + 1
+    # 4) save with png()/dev.off()
+    png(
+      file = file.path(
+        git_dir,
+        paste0(
+          "Integrated/Mouse/Plots/V2_ViolinPlot_FibroMarkers_",
+          gsub("[^A-Za-z0-9._-]+", "_", panel_chr),
+          "_clusterResolution0.6_VU40T_combined.png"
+        )
+      ),
+      width = 6, height = h_in, units = "in", res = 300
+    )
+    print(p_stack)
+    dev.off()
+  }
+  
+  
   
   ### overlay umaps
   
-  umap_markers <- fibro2_marker_ls[[3]]
+  umap_markers <- fibro2_marker_ls[[6]]
   colname <- colnames(umap_markers)[1]
   umap_markers <- c(colname, as.character(umap_markers[[1]]))
-  ### FOC and ZBTB7 not found in data but ZBTB7 has A and B subunit 
-  umap_markers <- stringr::str_replace(umap_markers,"ZBTB7", "ZBTB7A")
   umap_markers<- append(umap_markers, "ZBTB7B")
-  ## maybe FOC should be FOS?
-  umap_markers <- stringr::str_replace(umap_markers,"FOC", "FOS")
   
   png(file = file.path(
     git_dir,
     "Integrated/Mouse/Plots/Marker_Overlay_UMAPs_FibroMarkers_set2_clusterResolution0.6_VU40T_combined.png"),
-    width = 12, height = 12, units = "in", res = 300)
+    width = 21, height = 21, units = "in", res = 300)
   p <- FeaturePlot(VU40T.combined, 
                    features = umap_markers, 
                    label = F,# label.size = 3, repel = T,
-                   ) & 
+  ) & 
     scale_color_viridis_c()
   for (i in seq_along(p)){
     p[[i]][["labels"]][["title"]] <- stringr::str_to_sentence(p[[i]][["labels"]][["title"]])
@@ -925,7 +1078,7 @@ if (all(VU40T.combined$species == "Human")){
     git_dir,
     "Integrated/Plots/CombinedDotplot_CSC_EMT_Markers_clusterResolution0.3_VU40T_combined.png"),
     width = 8, height = 4, units = "in", res = 300)
-
+  
   p <- DotPlot(
     VU40T.combined,
     features = genevectors,
@@ -1216,7 +1369,7 @@ top_genes_per_cluster <- markers %>%
   arrange(desc(avg_log2FC)) %>%
   slice_head(n = 200)
 
-  
+
 # List of unique clusters
 clusters <- unique(markers$cluster)
 
@@ -1523,7 +1676,7 @@ for (i in seq_along(pseudobulk_DE_results)){
                                paste0("/Integrated/Mouse/Pseudobulk_DEs_MouseOnly_cluster", 
                                       names(pseudobulk_DE_results)[i], 
                                       ".csv" )
-                               )
+              )
     )
     
   }else{
@@ -1532,10 +1685,10 @@ for (i in seq_along(pseudobulk_DE_results)){
                                paste0("/Integrated/Pseudobulk_DEs_HumanOnly_cluster", 
                                       names(pseudobulk_DE_results)[i], 
                                       ".csv" )
-                               )
+              )
     )
   }
-
+  
 }
 
 library(EnhancedVolcano)
@@ -1557,7 +1710,7 @@ for (clust in names(pseudobulk_DE_results)) {
   }else{
     out_file <- file.path(git_dir, paste0("Integrated/Plots/HumanOnly_PseudoBulk_volcano_Cluster_", clust, ".png"))
   }
-
+  
   message(paste("Generating volcano for cluster", clust, "→", out_file))
   # Create the pic
   png(out_file, width = 8, height = 6, units = "in", res = 300)
@@ -1647,7 +1800,7 @@ if (!(dir.exists(output_dir))){
 for (clust in names(gsea_results)) {
   gsea_obj <- gsea_results[[clust]]
   if (is.null(gsea_obj) || nrow(gsea_obj) == 0) next
-
+  
   p <- dotplot(gsea_obj, showCategory = 20, split = ".sign") +
     ggtitle(paste("Cluster", clust, "- Reactome GSEA")) +
     theme_minimal()
@@ -1721,7 +1874,7 @@ if (Species == "Mouse"){
   write.csv(fibro_DE, file = file.path(git_dir, "Integrated/Mouse/MouseOnly_Fibroblast_bulk_DEs.csv"))
 }else{
   write.csv(fibro_DE, file = file.path(git_dir, "Integrated/HumanOnly_Epithelial_bulk_DEs.csv"))
-
+  
 }
 
 ### now make volcano plot
@@ -1735,7 +1888,7 @@ if (Species == "Mouse"){
   celltype <- "Epithelial"
 }
 if (!(dir.exists(output_dir))){
-    dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 }
 
 
@@ -1798,8 +1951,19 @@ gsea <- tryCatch({
 p <- dotplot(gsea, showCategory = 20, split = ".sign") +
   ggtitle(paste0(celltype, " LPS-P vs LPS-N - Reactome GSEA")) +
   theme_minimal()
-  
+
 out_file <- file.path(output_dir, paste0(Species,"Only", celltype, "_Reactome_GSEA_dotplot.png"))
 png(out_file, width = 10, height = 12, units = "in", res = 300)
 print(p)
 dev.off()
+
+### export epithelial data to h5ad building blocks for native pySCENIC
+if (all(VU40T.combined$species == "Human")){
+  library(Matrix)
+  out <- file.path(proj_dir, "scRNAseqAnalysis/human_epi_mtx")
+  dir.create(out, recursive=TRUE, showWarnings=FALSE)
+  write.table(as.matrix(Matrix::t(GetAssayData(object = epi, slot = "counts"))), 
+             file.path(out,'human_epi_counts.csv'), 
+             sep = ',', row.names = T, col.names = T, quote = F)
+}
+
