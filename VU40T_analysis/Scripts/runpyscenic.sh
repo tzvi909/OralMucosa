@@ -73,7 +73,7 @@ ann="${fns[@]: -1}"   # last element (note the space before -1)
 
 #echo "performing XGBoost algo with grn"
 pyscenic grn \
-    --num_workers 12 \
+    --num_workers 40 \
     --seed 123 \
     -o $res_dir/pyscenic_fixed_human_epi.adjacencies.tsv \
     --cell_id_attribute "Cell" \
