@@ -61,7 +61,8 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, ps
     
     # Skip if final gene set is empty
     if (length(gene_set) == 0) next
-    if (colnames(genelist)[i] != "Maturation Trajectory TFs"){
+    if ((colnames(genelist)[i] != "Maturation Trajectory TFs") &
+        (outPrefix != "New_set_TF_trajectory_markers")){
       # Generate dot plot
       p <- DotPlot(seurat_obj, features = gene_set, group.by = "seurat_clusters") +
         RotatedAxis() +
@@ -88,7 +89,8 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, ps
         plot_width <- min(max(2 * num_genes + 4, 10), 50)
       }
       colnames(genelist) <- gsub(" ", "_", colnames(genelist))
-        if(colnames(genelist)[i] != "Maturation Trajectory TFs"){
+        if((colnames(genelist)[i] != "Maturation Trajectory TFs") &
+           (outPrefix != "New_set_TF_trajectory_markers")){
           png(file = file.path(
             git_dir,
             paste0("Integrated/Plots/", marker_plot_dir_prefix ,"Dotplot_clusterResolution0.3_",
@@ -100,7 +102,7 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, ps
             git_dir,
             paste0("Integrated/Plots/", marker_plot_dir_prefix ,"Dotplot_clusterResolution0.3_",
                    outPrefix, "_", colnames(genelist)[i], "_VU40T_combined.png")),
-            height = plot_width, width = 4, units = "in", res = 300)
+            height = plot_width, width = 6, units = "in", res = 300)
         }
 
 
@@ -151,7 +153,7 @@ PseudotimeRidgePlot <- function(seurat_obj,
 
 
 
-git_dir <- "~/OralMucosa/VU40T_analysis"
+
 
 
 ## to avoid hitting that 20gb quota on my home dir,
@@ -159,14 +161,20 @@ git_dir <- "~/OralMucosa/VU40T_analysis"
 
 
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
+analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis")
+git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
 cache_dir <- file.path(proj_dir, "rds_cache")
 plot_dir <- file.path(git_dir, "Integrated/Plots/Pseudotime_humanOnly")
 tbls_dir <- file.path(git_dir, "Integrated/Pseudotime_humanOnly")
 
 ## dir check
-if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE)
-if (!dir.exists(plot_dir)) dir.create(plot_dir, recursive = TRUE)
-if (!dir.exists(tbls_dir)) dir.create(tbls_dir, recursive = TRUE)
+
+dir_chk_list <- c(analysis_dir, git_dir, cache_dir, plot_dir, tbls_dir)
+
+for (path in dir_chk_list){
+  if (!dir.exists(path)) dir.create(path, recursive = TRUE)
+}
+
 
 
 ## load in data
@@ -259,6 +267,7 @@ if (is.null(deg)) {
 
 
 epis <- readRDS(file.path(cache_dir, "VU40T_epithelial_withpseudotime.RDS"))
+
 pseudotime_marker_list <- as.vector(t(read.csv(file.path(git_dir, "Integrated/pseudotime_genes_umap.csv"),header = F)))
 
 ## remove empty strs from the transposition
@@ -270,7 +279,6 @@ print(p1)
 dev.off()
 FeaturePlot(epis, features = c("SOX4", "RUNX1", "ELF1", "GRHL2", "PITX1", "TP63", "CEBPB" ),label = T)
 
-RidgePlot(epis, features = c("SOX4", "RUNX1", "ELF1", "GRHL2", "PITX1", "TP63", "CEBPB" ), sort = T)
 
 ## make ridgeplots
 
@@ -311,3 +319,24 @@ marker_list_dp <- read.csv(file.path(git_dir, "Integrated/TF_trajectory_dotplot_
 make_marker_dotplots(epis, marker_list_dp, export = T, outPrefix = "TF_trajectory_markers", pseudo_order = TRUE)
 marker_list_dp <- read.csv("~/marker_list_3.csv")
 make_marker_dotplots(epis, marker_list_dp, export = T, outPrefix = "IL_WNT_COX_OXstress_trajectory_markers")
+
+### new list
+
+pseudotime_marker_list <- readxl::read_excel(file.path(analysis_dir, "TF_set_marker_umap_vln_4.xlsx"),col_names = F, sheet = 1 )
+pseudotime_marker_list$...1 <- as.factor(pseudotime_marker_list$...1)
+## change colname so dotplot has title
+colnames(pseudotime_marker_list) <- c("TF Trajectory Markers")
+
+
+make_marker_dotplots(epis, pseudotime_marker_list, export = T, outPrefix = "New_set_TF_trajectory_markers", pseudo_order = TRUE)
+
+### New umap overlays
+
+pseudotime_marker_list <- readxl::read_excel(file.path(analysis_dir, "TF_set_marker_umap_vln_4.xlsx"),col_names = F, sheet = 2 )
+## convert to vector
+pseudotime_marker_list <- pseudotime_marker_list$...1
+png(filename = file.path(plot_dir, "Epi_pseudoTime_trajectory_umaps_TFs_new.png"),width = 10, height = 10, units = "in", res = 300)
+p1 <- FeaturePlot(epis, features = pseudotime_marker_list, label = F ) & 
+  scale_color_viridis_c()
+print(p1)
+dev.off()
