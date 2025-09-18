@@ -8,6 +8,8 @@
 
 set -euo pipefail
 
+ulimit -n 10000
+
 ### modules
 module purge
 module load bluebear
@@ -71,29 +73,37 @@ ann="${fns[@]: -1}"   # last element (note the space before -1)
 
 #echo "performing XGBoost algo with grn"
 pyscenic grn \
-    --num_workers 10 \
-   --seed 123 \
-    -o $res_dir/human_epi.adjacencies.tsv \
-    human_epi_counts.csv \
+    --num_workers 12 \
+    --seed 123 \
+    -o $res_dir/pyscenic_fixed_human_epi.adjacencies.tsv \
+    --cell_id_attribute "Cell" \
+    --gene_attribute "Gene" \
+    --sparse \
+    pyscenic_compatible_human_epi_counts.loom \
     "$TF"
 
 echo "performing pyscenic ctx step"
 
 pyscenic ctx \
     --num_workers 10 \
-    $res_dir/human_epi.adjacencies.tsv \
+    $res_dir/pyscenic_fixed_human_epi.adjacencies.tsv \
     "${rdbs[@]/#/$data_dir/}" \
     --annotations_fname "$data_dir/$ann" \
-    --expression_mtx_fname human_epi_counts.csv \
+    --cell_id_attribute "Cell" \
+    --gene_attribute "Gene" \
+    --expression_mtx_fname pyscenic_compatible_human_epi_counts.loom \
     --mode "dask_multiprocessing" \
-    --output $res_dir/human_epi_regulons.csv \
+    --output $res_dir/pyscenic_fixed_human_epi_regulons.csv \
     --mask_dropouts \
     --all_modules     
 
 echo "converting regulons to aucell distances"
 
 pyscenic aucell \
-        human_epi_counts.csv \
-        $res_dir/human_epi_regulons.csv  \
-        -o $res_dir/human_epi_auc_mtx.csv \
+        pyscenic_compatible_human_epi_counts.loom \
+        $res_dir/pyscenic_fixed_human_epi_regulons.csv  \
+        -o $res_dir/pyscenic_fixed_human_epi_auc_mtx.csv \
+        --seed 123 \
+        --cell_id_attribute "Cell" \
+        --gene_attribute "Gene" \
         --num_workers 8
