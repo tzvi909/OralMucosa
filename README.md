@@ -15,7 +15,9 @@ VU40T_analysis/
 │   ├── Integration_seurat.R    # Integration of preprocessed data from each species seperately, outputs umaps, pseudobulk volcanos and GSEAs and marker dotplots.
 │   ├── GSEA_plotting.R     # Script to plot GSEA results from DAVID as dotplots 
 │   ├── epithelial_pseudotime.R     # pseudotime analysis for epithelial cells with monocle3
-│   └── fibroblast_pseudotime.R     # pseudotime analysis for fibroblast cells with monocle3
+│   ├── fibroblast_pseudotime.R     # pseudotime analysis for fibroblast cells with monocle3
+│   ├── runpyscenic.sh   # shellscript to run pyscenic on the curated TF list with gene names mapped onto older aliases in ranking DB
+│   └── cellchat.R     # Ligand-receptor cellular communication analysis between epithelial and fibroblast clusters with cellchat
 ├── human_multiqc_report.html     # from nf-core/scrnaseq pipeline run
 ├── Mixed_species_plots/     # Output species assignment figures 
 ├── VU40T_species_assignment_by_reads.csv   # species assignment table
@@ -71,4 +73,11 @@ sessionInfo()
 [30] sp_2.2-0  
 [31] EnhancedVolcano_1.24.0     
 [32] ggrepel_0.9.6
+[33] CellChat_2.1.2
+```
+
+and Python (v. 4.4.1) libraries/tools:
+
+```bash
+pySCENIC v 0.12.1
 ```
