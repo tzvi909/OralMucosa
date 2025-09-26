@@ -74,9 +74,10 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, ps
     } else {
       p <- DotPlot(seurat_obj, features = gene_set, group.by = "seurat_clusters") +
         coord_flip() +
-        ggplot2::ggtitle(colnames(genelist)[i]) +
+        ggtitle(colnames(genelist)[i]) +
         scale_color_gradient(low = "lightgrey", high = "red") +
-        labs(x = "Genes", y = "Clusters")  # Relabel axes
+        labs(x = "Genes", y = "Clusters") +
+        scale_x_discrete(limits = rev) + theme(axis.text.y = element_text(size = 8))
     }
 
     # Export or print
@@ -86,7 +87,7 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, ps
       if (num_genes <= 6) {
         plot_width <- 6  # Small gene sets: fixed small width
       } else {
-        plot_width <- min(max(2 * num_genes + 4, 10), 50)
+        plot_width <- min(max(2.2 * num_genes + 4, 10), 50)
       }
       colnames(genelist) <- gsub(" ", "_", colnames(genelist))
         if((colnames(genelist)[i] != "Maturation Trajectory TFs") &
@@ -169,7 +170,7 @@ tbls_dir <- file.path(git_dir, "Integrated/Pseudotime_humanOnly")
 
 ## dir check
 
-dir_chk_list <- c(analysis_dir, git_dir, cache_dir, plot_dir, tbls_dir)
+dir_chk_list <- c(git_dir, cache_dir, plot_dir, tbls_dir)
 
 for (path in dir_chk_list){
   if (!dir.exists(path)) dir.create(path, recursive = TRUE)
@@ -237,7 +238,8 @@ png(filename = file.path(plot_dir, "Epi_pseudoTime_trajectory_boxplot_ordered.pn
 p1 <- ggplot(data.pseudo, aes(monocle3_pseudotime, reorder(seurat_clusters, monocle3_pseudotime), fill = seurat_clusters)) + 
     geom_boxplot() + 
     xlab("Monocle3 Pseudotime") + 
-    ylab("Seurat Clusters (Reordered by Pseudotime)")
+    ylab("Seurat Clusters (Reordered by Pseudotime)") +
+    theme_minimal()
 print(p1)
 dev.off()
 
@@ -313,8 +315,8 @@ dev.off()
 
 ### trajectory dotplots
 
-marker_list_dp <- read.csv(file.path(git_dir, "Integrated/TF_trajectory_dotplot_markers.csv"), encoding = "UTF-8", check.names = FALSE, stringsAsFactors = FALSE)
-
+marker_list_dp <- read.csv(file.path(git_dir, "Integrated/TF_trajectory_dotplot_markers.csv"), encoding = "UTF-8", check.names = FALSE, stringsAsFactors = F)
+marker_list_dp$`AP1 & ATF`[6:8] <- c("ATF1", "ATF3", "ATF4")
 
 make_marker_dotplots(epis, marker_list_dp, export = T, outPrefix = "TF_trajectory_markers", pseudo_order = TRUE)
 marker_list_dp <- read.csv("~/marker_list_3.csv")
@@ -323,7 +325,10 @@ make_marker_dotplots(epis, marker_list_dp, export = T, outPrefix = "IL_WNT_COX_O
 ### new list
 
 pseudotime_marker_list <- readxl::read_excel(file.path(analysis_dir, "TF_set_marker_umap_vln_4.xlsx"),col_names = F, sheet = 1 )
-pseudotime_marker_list$...1 <- as.factor(pseudotime_marker_list$...1)
+pseudotime_marker_list$...1 <- factor(
+  pseudotime_marker_list$...1,
+  levels = rev(unique(pseudotime_marker_list$...1))
+)
 ## change colname so dotplot has title
 colnames(pseudotime_marker_list) <- c("TF Trajectory Markers")
 
@@ -335,8 +340,58 @@ make_marker_dotplots(epis, pseudotime_marker_list, export = T, outPrefix = "New_
 pseudotime_marker_list <- readxl::read_excel(file.path(analysis_dir, "TF_set_marker_umap_vln_4.xlsx"),col_names = F, sheet = 2 )
 ## convert to vector
 pseudotime_marker_list <- pseudotime_marker_list$...1
-png(filename = file.path(plot_dir, "Epi_pseudoTime_trajectory_umaps_TFs_new.png"),width = 10, height = 10, units = "in", res = 300)
+# pseudotime_marker_list <- append(pseudotime_marker_list, "MYC")
+png(filename = file.path(plot_dir, "Epi_pseudoTime_trajectory_umaps_TFs_new.png"),
+    width = 6, height = 8, units = "in", res = 300
+    )
 p1 <- FeaturePlot(epis, features = pseudotime_marker_list, label = F ) & 
   scale_color_viridis_c()
 print(p1)
 dev.off()
+
+## New human TF violin plots
+genelist <- readxl::read_excel(file.path(analysis_dir, "TF_set_marker_umap_vln_4.xlsx"),col_names = F, sheet = 3 )
+genelist <- genelist$...1
+
+### reorder clusters in pseudotime order
+cluster_order <- epis@meta.data %>%
+  dplyr::group_by(seurat_clusters) %>%
+  dplyr::summarise(avg_pseudotime = mean(pseudotime, na.rm = TRUE)) %>%
+  dplyr::arrange(avg_pseudotime) %>%
+  dplyr::pull(seurat_clusters)
+
+# Relevel the factor according to pseudotime
+epis$seurat_clusters <- factor(epis$seurat_clusters, levels = cluster_order)
+
+Idents(epis) <- factor(epis$seurat_clusters, levels = cluster_order)
+png(file = file.path(
+  git_dir,
+  "Integrated/Plots/Pseudotime_humanOnly/ViolinPlot_Epi_TF_Markers_set4_clusterResolution0.3_VU40T_combined.png"),
+  width = 6, height = 18, units = "in", res = 300)
+p <- VlnPlot(
+  epis,
+  features = na.omit(genelist),
+  alpha = 1, pt.size = 0,
+  combine = FALSE
+) 
+
+# remove legends + tighten margins
+p <- lapply(p, function(pp) {
+  pp + theme(
+    legend.position = "none",
+    plot.margin = margin(2, 1, 2, 1),
+    axis.text.x = element_text(size = 10, angle = 0, hjust = 0.5),
+    axis.text.y = element_text(size = 10, angle = 0, vjust = 0.5),
+  )
+})
+
+for (i in seq_along(p)){
+  p[[i]][["labels"]][["x"]] <- ""
+  p[[i]][["labels"]][["y"]] <- ""
+} 
+
+p_stack <- patchwork::wrap_plots(p, ncol = 2, nrow = 11,  guides = "collect")
+
+print(p_stack)
+dev.off()
+

@@ -102,7 +102,8 @@ png(file.path(plot_dir,
 p_box <- ggplot(data.pseudo, aes(monocle3_pseudotime, reorder(seurat_clusters, monocle3_pseudotime), fill = seurat_clusters)) +
   geom_boxplot() +
   xlab("Monocle3 Pseudotime") +
-  ylab("Seurat Clusters (Reordered by Pseudotime)")
+  ylab("Seurat Clusters (Reordered by Pseudotime)") +
+  theme_minimal()
 print(p_box)
 dev.off()
 

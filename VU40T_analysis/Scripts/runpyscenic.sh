@@ -5,10 +5,33 @@
 #SBATCH --mail-type=ALL
 #SBATCH --nodes 1
 #SBATCH --ntasks 48
+#SBATCH --mem 120G
 
 set -euo pipefail
 
-ulimit -n 10000
+## OPENBLAS and DASK settings
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+       NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
+export SLURM_CPU_BIND=cores
+
+# Spill to local scratch and avoid nanny kills
+
+# Node-local temp (fallback to /tmp if SLURM_TMPDIR is undefined)
+export TMPDIR=${SLURM_TMPDIR:-/tmp}
+
+export DASK_TEMPORARY_DIRECTORY="$TMPDIR"
+export DASK_DISTRIBUTED__WORKER__TEMPORARY_DIRECTORY="$TMPDIR"
+export DASK_DISTRIBUTED__WORKER__MEMORY__TARGET="0.80"
+export DASK_DISTRIBUTED__WORKER__MEMORY__SPILL="0.90"
+export DASK_DISTRIBUTED__WORKER__MEMORY__PAUSE="0.95"
+export DASK_DISTRIBUTED__WORKER__MEMORY__TERMINATE="0.99"
+
+# (nice-to-have on 2022.x)
+export DASK_DISTRIBUTED__COMM__RETRY__COUNT=8
+export DASK_DISTRIBUTED__COMM__TIMEOUTS__CONNECT="60s"
+export DASK_DISTRIBUTED__COMM__TIMEOUTS__TCP="120s"
+
+ulimit -n 65536  || true
 
 ### modules
 module purge
@@ -28,11 +51,15 @@ mkdir -p "$data_dir" "$res_dir"
 
 ### download resources as recommended by tool authors
 ##hg38 TF list
-TF="$data_dir/allTFs_hg38.txt"
-if [[ ! -s "$TF" ]]; then
-  wget -q --show-progress -O "$TF" \
-    "https://resources.aertslab.org/cistarget/tf_lists/allTFs_hg38.txt"
-fi
+# TF="$data_dir/allTFs_hg38.txt"
+# if [[ ! -s "$TF" ]]; then
+#   wget -q --show-progress -O "$TF" \
+#     "https://resources.aertslab.org/cistarget/tf_lists/allTFs_hg38.txt"
+# fi
+
+## using curated TF list
+
+TF="../OralMucosa/VU40T_analysis/Integrated/curated_TFs_hg38.txt"
 
 ##TF rankings and annotation as last index
 # urls=(
@@ -71,29 +98,33 @@ rdbs=( "${fns[@]:0:${#fns[@]}-1}" )
 ### motif annotation
 ann="${fns[@]: -1}"   # last element (note the space before -1)
 
-#echo "performing XGBoost algo with grn"
+## copy loom to scratch dir
+cp -f pyscenic_compatible_human_epi_counts.loom "$TMPDIR/pyscenic_compatible_human_epi_counts.loom"
+
+echo "performing XGBoost algo with grn"
 pyscenic grn \
-    --num_workers 40 \
+    --num_workers 20 \
     --seed 123 \
-    -o $res_dir/pyscenic_fixed_human_epi.adjacencies.tsv \
+    -o "$TMPDIR/curatedTFs_pyscenic_comp_human_epi.adjacencies.tsv" \
     --cell_id_attribute "Cell" \
     --gene_attribute "Gene" \
-    --sparse \
-    pyscenic_compatible_human_epi_counts.loom \
+    "$TMPDIR/pyscenic_compatible_human_epi_counts.loom" \
     "$TF"
+## copy adjacencies out of scratch to PATH    
+cp -f "$TMPDIR/curatedTFs_pyscenic_comp_human_epi.adjacencies.tsv" "$res_dir/curatedTFs_pyscenic_comp_human_epi.adjacencies.tsv"
 
 echo "performing pyscenic ctx step"
 
 pyscenic ctx \
-    --num_workers 10 \
-    $res_dir/pyscenic_fixed_human_epi.adjacencies.tsv \
+    --num_workers 20 \
+    $res_dir/curatedTFs_pyscenic_comp_human_epi.adjacencies.tsv \
     "${rdbs[@]/#/$data_dir/}" \
     --annotations_fname "$data_dir/$ann" \
     --cell_id_attribute "Cell" \
     --gene_attribute "Gene" \
     --expression_mtx_fname pyscenic_compatible_human_epi_counts.loom \
     --mode "dask_multiprocessing" \
-    --output $res_dir/pyscenic_fixed_human_epi_regulons.csv \
+    --output $res_dir/curatedTFs_pyscenic_fixed_human_epi_regulons.csv \
     --mask_dropouts \
     --all_modules     
 
@@ -101,9 +132,9 @@ echo "converting regulons to aucell distances"
 
 pyscenic aucell \
         pyscenic_compatible_human_epi_counts.loom \
-        $res_dir/pyscenic_fixed_human_epi_regulons.csv  \
-        -o $res_dir/pyscenic_fixed_human_epi_auc_mtx.csv \
+        $res_dir/curatedTFs_pyscenic_fixed_human_epi_regulons.csv  \
+        -o $res_dir/curatedTFs_pyscenic_fixed_human_epi_auc_mtx.csv \
         --seed 123 \
         --cell_id_attribute "Cell" \
         --gene_attribute "Gene" \
-        --num_workers 8
+        --num_workers 20

@@ -713,41 +713,6 @@ if (all(VU40T.combined$species == "Human")){
     print(p_stack)
     dev.off
   }
-  ## New human TF violin plots
-  genelist <- readxl::read_excel(file.path(analysis_dir, "TF_set_marker_umap_vln_4.xlsx"),col_names = F, sheet = 3 )
-  genelist <- genelist$...1
-  
-  png(file = file.path(
-    git_dir,
-    "Integrated/Plots/ViolinPlot_Epi_TF_Markers_set4_clusterResolution0.3_VU40T_combined.png"),
-    width = 6, height = 18, units = "in", res = 300)
-  p <- VlnPlot(
-    # VU40T.combined,
-    epis,
-    features = na.omit(genelist),
-    alpha = 1, pt.size = 0,
-    combine = FALSE
-  ) 
-  
-  # remove legends + tighten margins
-  p <- lapply(p, function(pp) {
-    pp + theme(
-      legend.position = "none",
-      plot.margin = margin(2, 1, 2, 1),
-      axis.text.x = element_text(size = 10, angle = 0, hjust = 0.5),
-      axis.text.y = element_text(size = 10, angle = 0, vjust = 0.5),
-    )
-  })
-  
-  for (i in seq_along(p)){
-    p[[i]][["labels"]][["x"]] <- ""
-    p[[i]][["labels"]][["y"]] <- ""
-  } 
-  
-  p_stack <- patchwork::wrap_plots(p, ncol = 2, nrow = 10,  guides = "collect")
-  
-  print(p_stack)
-  dev.off()
 }
 ## genelist 3 -> mouse and human epithelial, fibroblast and EMT markers
 genelist <- as.data.frame(read.csv("~/Markers_for_dotplots_2_ep_2nd_set.csv", header = T, skip = 1))
