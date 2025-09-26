@@ -28,7 +28,7 @@ VU40T_analysis/
 │   └── Mouse/      # plots and markers from seurat analysis on seperate samples using mouse alignment only - pre-integration 
 │   │   ├── Plots/  # final pre integration plots on mouse alignment only
 │   │   └── QC_plots/   # diagnostic plots from     pre-integration_seurat.R - mouse alignment only
-└── Integrated/   # figs and tables from Integration_seurat.R for human alignments in this dir and Mouse alignments in a subdir.
+└── Integrated/   # figs and tables from Integration_seurat.R for human alignments in this dir and Mouse alignments in a subdir, as well as regulon ranking tbl from pySCENIC using wilcoxon-rank test.
 │   ├── CellChat/Plots/  #  Plots from Cellchat analysis on joined epithelial and fibroblast seurat objects.
 │   ├── Plots/  #  Plots from seurat analysis on Integrated dataset using human alignment only. includes pseudobulk and bulk plots as well as pySCENIC plots.
 │   ├── Pseudotime_humanOnly/  #  Epithelial pseudotime DEG list which passed monocle3 QC
@@ -83,5 +83,6 @@ and Python (v. 4.4.1) libraries/tools:
 ```bash
 pySCENIC v 0.12.1
 ```
+
 
 
