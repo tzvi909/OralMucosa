@@ -6,15 +6,34 @@ library(SingleCellExperiment)
 library(dplyr)
 library(patchwork)
 library(SingleCellExperiment)
+library(optparse)
 ## run tsne and umap clustering
-git_dir <- "~/OralMucosa/VU40T_analysis"
-# if (any(grepl("^ENSMUS", rownames(SeuratList[[i]]@assays[["RNA"]])))) {
-#   organism_opt <- "Mouse"
-# } else{
-#   organism_opt <- "Human"
-# }
 
-seurat_filtered_list <- readRDS("NormAndScaled_VU40T_Seurat_filtered_individual_samples_list_Mouse.rds")
+### dir setup
+
+proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
+analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
+git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
+cache_dir <- file.path(proj_dir, "rds_cache")
+
+## check for dirs recursively
+
+chk_dir_list <- list(analysis_dir, git_dir, cache_dir)
+
+for (path in chk_dir_list){
+  if(!(dir.exists(path))){
+    dir.create(path, recursive = T)
+  }
+}
+if (any(grepl("^ENSMUS", rownames(SeuratList[[i]]@assays[["RNA"]])))) {
+  organism_opt <- "Mouse"
+} else{
+  organism_opt <- "Human"
+}
+
+if (organism_opt == "Mouse"){
+  seurat_filtered_list <- readRDS("NormAndScaled_VU40T_Seurat_filtered_individual_samples_list_Mouse.rds")
+}
 
 
 
@@ -85,8 +104,11 @@ for (i in seq_along(seurat_filtered_list)){
 }
 
 ##checkpoint
+if (organism_opt == "Mouse"){
 saveRDS(seurat_filtered_list, file = "preDoubletFinder_VU40T_seuratList_Mouse.rds")
-
+} else{
+  
+}
 
 ## DoubletFinder
 
@@ -282,7 +304,8 @@ for (i in seq_along(seurat_filtered_list)){
   seurat_singlets_list[[i]] <- subset(seurat_filtered_list[[i]], subset = doublet_finder == "Singlet")
   names(seurat_singlets_list)[i] <- names(seurat_filtered_list)[i]
 }
-saveRDS(seurat_singlets_list, file = "VU40T_singlets_only_sep_samples_Mouse.RDS")
-
+if (organism_opt == "Mouse"){
+  saveRDS(seurat_singlets_list, file = "VU40T_singlets_only_sep_samples_Mouse.RDS")
+}
 
 
