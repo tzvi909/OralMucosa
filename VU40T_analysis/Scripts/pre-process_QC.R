@@ -34,7 +34,7 @@ print(opt)
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
 analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
 git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
-out_prefix_dir <- file.path(git_dir, "OralMucosa/Seperate_samples")
+out_prefix_dir <- file.path(git_dir, "Seperate_samples")
 
 cache_dir <- file.path(proj_dir, "rds_cache")
 
@@ -251,7 +251,6 @@ dev.off()
 for (sample_name in names(seurat_filtered_list)) {
   seurat_obj <- seurat_filtered_list[[sample_name]]
   
-  # Standard Seurat preprocessing
   seurat_obj <- NormalizeData(seurat_obj, verbose = FALSE)
   seurat_obj <- FindVariableFeatures(seurat_obj, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
   seurat_obj <- ScaleData(seurat_obj, verbose = FALSE)
@@ -259,7 +258,11 @@ for (sample_name in names(seurat_filtered_list)) {
   # Store back in processed list
   seurat_filtered_list[[sample_name]] <- seurat_obj
   
-  cat(paste0("✅ Normalized and scaled: ", sample_name, "\n"))
+  print(paste0("✅ Normalized and scaled: ", sample_name, "\n"))
 }
 
 saveRDS(seurat_filtered_list, file = file.path(cache_dir, paste0("NormAndScaled_VU40T_Seurat_filtered_individual_samples_list_", species,".rds")))
+
+message(paste0("Normalized and scaled RDS QC'd checkpoint saved to: ", 
+             file.path(cache_dir, paste0("NormAndScaled_VU40T_Seurat_filtered_individual_samples_list_", species,".rds"))))
+      
