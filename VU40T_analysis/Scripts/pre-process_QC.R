@@ -29,28 +29,6 @@ opt_parser <- OptionParser(option_list = option_list)
 opt <- parse_args(opt_parser)
 print(opt)
 
-### dir setup
-
-proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
-analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
-git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
-out_prefix_dir <- file.path(git_dir, "Seperate_samples")
-
-cache_dir <- file.path(proj_dir, "rds_cache")
-
-## check for dirs recursively
-
-chk_dir_list <- list(analysis_dir, git_dir, cache_dir, out_prefix_dir)
-
-for (path in chk_dir_list){
-  if(!(dir.exists(path))){
-    dir.create(path, recursive = T)
-  }
-}
-
-
-
-
 # Store selected species
 species <- tolower(opt$species)
 
@@ -59,16 +37,30 @@ if (!species %in% c("human", "mouse")) {
   stop("Invalid species. Use 'human' or 'mouse'.")
 }
 
-if (species == "human"){
-  mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mtx_conversions")
-  plotQC_dir <- file.path(out_prefix_dir, "Plots/QC")
-} else {
-  mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts_Mouse/cellranger/mtx_conversions")
-  plotQC_dir <- file.path(out_prefix_dir, "Mouse/Plots/QC")
+
+### dir setup
+
+proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
+analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
+git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
+out_prefix_dir <- file.path(git_dir, "Seperate_samples")
+plotQC_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species), "/Plots/QC"))
+cache_dir <- file.path(proj_dir, "rds_cache")
+
+## check for dirs recursively
+
+chk_dir_list <- list(analysis_dir, git_dir, cache_dir, out_prefix_dir, plotQC_dir)
+
+for (path in chk_dir_list){
+  if(!(dir.exists(path))){
+    dir.create(path, recursive = T)
+  }
 }
 
-if(!(dir.exists(plotQC_dir))){
-  dir.create(plotQC_dir, recursive = T)
+if (species == "human"){
+  mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mtx_conversions")
+} else {
+  mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts_Mouse/cellranger/mtx_conversions")
 }
 
 Samples <- list.files(path = mtx_dir, 
@@ -254,6 +246,7 @@ for (sample_name in names(seurat_filtered_list)) {
   seurat_obj <- NormalizeData(seurat_obj, verbose = FALSE)
   seurat_obj <- FindVariableFeatures(seurat_obj, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
   seurat_obj <- ScaleData(seurat_obj, verbose = FALSE)
+  seurat_obj <- RunPCA(seurat_obj, features=VariableFeatures(seurat_obj))
   
   # Store back in processed list
   seurat_filtered_list[[sample_name]] <- seurat_obj
