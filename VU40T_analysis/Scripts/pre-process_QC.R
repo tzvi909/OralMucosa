@@ -43,8 +43,8 @@ if (!species %in% c("human", "mouse")) {
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
 analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
 git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
-out_prefix_dir <- file.path(git_dir, "Seperate_samples")
-plotQC_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species), "/Plots/QC"))
+out_prefix_dir <- file.path(git_dir, paste0("Seperate_samples/", stringr::str_to_title(species)))
+plotQC_dir <- file.path(out_prefix_dir, "Plots/QC")
 cache_dir <- file.path(proj_dir, "rds_cache")
 
 ## check for dirs recursively
@@ -119,10 +119,12 @@ if (species == "mouse"){
     # 5. Replace rownames in Seurat object
     common_ids <- intersect(rownames(seurat_obj[["RNA"]]), gene_map$ensembl_gene_id)
     new_names <- gene_map$mgi_symbol[match(common_ids, gene_map$ensembl_gene_id)]
+    new_names <- make.unique(new_names)
     
     rownames(seurat_obj[["RNA"]])[match(common_ids, rownames(seurat_obj[["RNA"]]))] <- new_names
+    
     SeuratList[[i]] <- seurat_obj
-    message("Mouse ENS IDs changed to HGNC sucessfully in sample ", unique(SeuratList[[i]]$sample) )
+    message("Mouse ENS IDs changed to HGNC sucessfully for sample ", unique(SeuratList[[i]]$sample) )
   }
 }
 
@@ -214,6 +216,9 @@ for (sample in seq_along(SeuratList)) {
   ))
 }
 
+## reassign sample name to slices of seurat obj list:
+names(seurat_filtered_list) <- names(SeuratList)
+
 
 # Combine all metadata
 qc_df <- do.call(rbind, all_qc_metadata)
@@ -250,8 +255,7 @@ for (sample_name in names(seurat_filtered_list)) {
   
   # Store back in processed list
   seurat_filtered_list[[sample_name]] <- seurat_obj
-  
-  print(paste0("✅ Normalized and scaled: ", sample_name, "\n"))
+  print(paste0("✅ Normalised and scaled: ", sample_name))
 }
 
 saveRDS(seurat_filtered_list, file = file.path(cache_dir, paste0("NormAndScaled_VU40T_Seurat_filtered_individual_samples_list_", species,".rds")))
