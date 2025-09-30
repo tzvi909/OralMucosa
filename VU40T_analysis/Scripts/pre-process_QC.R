@@ -9,6 +9,7 @@ library(tibble)
 library(SingleCellExperiment)
 library(patchwork)
 library(optparse)
+library(biomaRt)
 
 ### dir setup
 
@@ -21,7 +22,7 @@ cache_dir <- file.path(proj_dir, "rds_cache")
 
 ## check for dirs recursively
 
-chk_dir_list <- list(analysis_dir, git_dir, cache_dir)
+chk_dir_list <- list(analysis_dir, git_dir, cache_dir, out_prefix_dir)
 
 for (path in chk_dir_list){
   if(!(dir.exists(path))){
@@ -56,6 +57,9 @@ if (species == "human"){
   plotQC_dir <- file.path(out_prefix_dir, "Mouse/Plots/QC")
 }
 
+if(!(dir.exists(plotQC_dir))){
+  dir.create(plotQC_dir, recursive = T)
+}
 
 Samples <- list.files(path = mtx_dir, 
                       pattern = "^P",
@@ -72,6 +76,37 @@ SeuratList <- list()
 for(i in seurat_objs){
   SeuratList[[i]] <- LoadSeuratRds(i)
   Idents(SeuratList[[i]]) <- SeuratList[[i]]$sample
+}
+if (species == "mouse"){
+  library(biomaRt)
+  
+  # 1. Connect to Ensembl (mouse)
+  ensembl <- useEnsembl(biomart = "genes", dataset = "mmusculus_gene_ensembl")
+  for(i in seq_along(SeuratList)){
+    seurat_obj <- SeuratList[[i]]
+    # 2. Get Ensembl IDs from your Seurat object (assumes default assay is RNA)
+    ens_ids <- rownames(seurat_obj[["RNA"]])  # or seurat_obj if default assay
+    
+    # 3. Query BioMart for gene symbol mappings
+    gene_map <- getBM(
+      attributes = c("ensembl_gene_id", "mgi_symbol"),
+      filters = "ensembl_gene_id",
+      values = ens_ids,
+      mart = ensembl
+    )
+    
+    # 4. Clean and uppercase
+    gene_map <- gene_map[gene_map$mgi_symbol != "", ]
+    gene_map <- gene_map[!duplicated(gene_map$ensembl_gene_id), ]
+    gene_map$mgi_symbol <- toupper(gene_map$mgi_symbol)
+    
+    # 5. Replace rownames in Seurat object
+    common_ids <- intersect(rownames(seurat_obj[["RNA"]]), gene_map$ensembl_gene_id)
+    new_names <- gene_map$mgi_symbol[match(common_ids, gene_map$ensembl_gene_id)]
+    
+    rownames(seurat_obj[["RNA"]])[match(common_ids, rownames(seurat_obj[["RNA"]]))] <- new_names
+    SeuratList[[i]] <- seurat_obj
+  }
 }
 
 # Replace SeuratList names with simplified format like P18_LPS-N, P22_LPS-P, etc.
