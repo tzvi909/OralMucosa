@@ -19,7 +19,7 @@ option_list <- list(
               default = ,
               help = "input RDS dir to load",
               metavar = "character"),
-  make_option(c("-t", "--n_cores"),
+  make_option(c("-n", "--n_cores"),
               type = "integer",
               default = 1,
               help = "Number of cores to use to run DoubletFinder [default = %default]",
