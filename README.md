@@ -9,6 +9,7 @@ VU40T_analysis/
 ├── Scripts/               # R and shell scripts used in the pipeline
 │   ├── createscrnaseqsamplesheet.sh     # automate samplesheet creation for nf-core/scrnaseq input
 │   ├── runnf-corescrnaseq.slurm    # slurm shell script to run nf-core/scrnaseq (v. 4.0.0) on raw FastQ data
+│   ├── main.R    # R pipeline wrapper script for all R parts of analysis
 │   ├── species_mixing.R    # loads in both human and mouse alignments and assigns species labels to cell barcodes
 │   ├── pre-process_seurat.R     # QC and filtering both fibroblasts and epithelial cells
 │   ├── DoubletFinder.R     # Pre-processing cont. and single sample analysis
@@ -83,6 +84,7 @@ and Python (v. 4.4.1) libraries/tools:
 ```bash
 pySCENIC v 0.12.1
 ```
+
 
 
 
