@@ -9,7 +9,25 @@ library(tibble)
 library(SingleCellExperiment)
 library(patchwork)
 library(optparse)
-library(biomaRt)
+
+### opts
+
+option_list <- list(
+  make_option(c("-s", "--species"),
+              type = "character",
+              default = "human",
+              help = "Species to use [default = %default]. Options: human or mouse",
+              metavar = "character"),
+  make_option(c("-i", "--input"),
+              type = "character",
+              default = ,
+              help = "input RDS dir to load",
+              metavar = "character")
+)
+
+opt_parser <- OptionParser(option_list = option_list)
+opt <- parse_args(opt_parser)
+print(opt)
 
 ### dir setup
 
@@ -30,16 +48,8 @@ for (path in chk_dir_list){
   }
 }
 
-option_list <- list(
-  make_option(c("-s", "--species"),
-              type = "character",
-              default = "human",
-              help = "Species to use [default = %default]. Options: human or mouse",
-              metavar = "character")
-)
 
-opt_parser <- OptionParser(option_list = option_list)
-opt <- parse_args(opt_parser)
+
 
 # Store selected species
 species <- tolower(opt$species)
@@ -64,7 +74,12 @@ if(!(dir.exists(plotQC_dir))){
 Samples <- list.files(path = mtx_dir, 
                       pattern = "^P",
                       recursive = F
-) ##check we only have 4 samples
+) 
+
+cat("samples identified for analysis: ", Samples)
+
+
+##check we only have 4 samples
 ## get only cellbender seurat_obj paths
 seurat_objs <- list.files(path = mtx_dir, 
                           pattern = "^P.*cellbender.*.seurat.rds$",
@@ -72,11 +87,21 @@ seurat_objs <- list.files(path = mtx_dir,
                           recursive = T
 )
 
+
+
 SeuratList <- list()
 for(i in seurat_objs){
   SeuratList[[i]] <- LoadSeuratRds(i)
   Idents(SeuratList[[i]]) <- SeuratList[[i]]$sample
 }
+
+if (length(SeuratList) == 4){
+  message("All samples loaded into Seurat from this paper")
+} else {
+  message("Partial QC and analysis started")
+}
+
+### ENS ID conversion to HGNC for mouse genome
 if (species == "mouse"){
   library(biomaRt)
   
@@ -95,10 +120,9 @@ if (species == "mouse"){
       mart = ensembl
     )
     
-    # 4. Clean and uppercase
+    # 4. Clean
     gene_map <- gene_map[gene_map$mgi_symbol != "", ]
     gene_map <- gene_map[!duplicated(gene_map$ensembl_gene_id), ]
-    gene_map$mgi_symbol <- toupper(gene_map$mgi_symbol)
     
     # 5. Replace rownames in Seurat object
     common_ids <- intersect(rownames(seurat_obj[["RNA"]]), gene_map$ensembl_gene_id)
@@ -106,6 +130,7 @@ if (species == "mouse"){
     
     rownames(seurat_obj[["RNA"]])[match(common_ids, rownames(seurat_obj[["RNA"]]))] <- new_names
     SeuratList[[i]] <- seurat_obj
+    message("Mouse ENS IDs changed to HGNC sucessfully in sample ", unique(SeuratList[[i]]$sample) )
   }
 }
 
@@ -114,30 +139,48 @@ names(SeuratList) <- gsub("^.*/(P[0-9]+)_LPS-([NP]).*$", "\\1_LPS-\\2", names(Se
 
 ## Mito genes were isolated from hg38 GTF (chrM)
 
-if(species == "human"){
-  mito_genes <- read.delim("/rds/projects/g/gendood-3dmucosa/BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mkref/cellranger_reference/genes/MTgenes.txt", sep = "\t", header = F)
+has_mito_prefix <- any(sapply(SeuratList, function(obj) {
+  any(grepl("^MT-", rownames(obj[["RNA"]]))) |
+    any(grepl("^mt-", rownames(obj[["RNA"]])))
+}))
+
+if (!has_mito_prefix) {
+  mito_path <- "/rds/projects/g/gendood-3dmucosa/BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mkref/cellranger_reference/genes/MTgenes.txt"
   
-  ## convert to vector
-  mito_genes <- c(t(mito_genes))
+  if (file.exists(mito_path)) {
+    mito_genes <- read.delim(mito_path, sep = "\t", header = FALSE)
+    mito_genes <- c(t(mito_genes))
+  } else {
+    stop("❌ Mitochondrial gene list not found at: ", mito_path)
+  }
 }
+
+
+## thresholds worked out from doing histogram of log-transformed count data
 thresholds_df <- data.frame(
   sample = c("P18_LPS-N", "P18_LPS-P", "P22_LPS-N", "P22_LPS-P"),
   cutoff = c(300, 350, 300, 300)
 )
 
 seurat_filtered_list <- list() 
-for (i in seq_along(SeuratList)) {
-  seurat_obj <- SeuratList[[i]]
-  sce <- as.SingleCellExperiment(seurat_obj)
+all_qc_metadata <- list()
+for (sample in seq_along(SeuratList)) {
+  seurat_obj <- SeuratList[[sample]]
+  sce <- as.SingleCellExperiment(seurat_obj,assay = "RNA")
+  sample_id <- unique(seurat_obj$sample)
   
   # Detect mitochondrial genes
-  if (!any(grepl("^MT", rownames(seurat_obj[["RNA"]])))) {
+  if (! has_mito_prefix) {
     mito_flag <- rownames(sce) %in% mito_genes
-  } else {
+  } else if (any(grepl("^MT-", rownames(seurat_obj[["RNA"]]))) &
+             !any(grepl("^mt-", rownames(seurat_obj[["RNA"]])))
+             ) {
     mito_genes_detected <- rownames(seurat_obj[["RNA"]])[grepl("^MT[-]?", rownames(seurat_obj[["RNA"]]))]
     mito_flag <- rownames(sce) %in% mito_genes_detected
+  } else {
+    mito_genes_detected <- rownames(seurat_obj[["RNA"]])[grepl("^mt[-]?", rownames(seurat_obj[["RNA"]]))]
+    mito_flag <- rownames(sce) %in% mito_genes_detected
   }
-
   
   # Calculate QC metrics
   qc_metrics <- perCellQCMetrics(sce, subsets = list(Mt = mito_flag))
@@ -145,7 +188,7 @@ for (i in seq_along(SeuratList)) {
   # Apply QC thresholds
   qc_metrics$low_lib <- isOutlier(qc_metrics$sum, log = TRUE, type = "lower", nmads = 5)
   qc_metrics$low_feats <- isOutlier(qc_metrics$detected, log = TRUE, type = "lower", nmads = 5) |
-    qc_metrics$sum < thresholds_df$cutoff[thresholds_df$sample == names(SeuratList)[i]]
+  qc_metrics$sum < thresholds_df$cutoff[thresholds_df$sample == sample_id]
   qc_metrics$high_mito <- qc_metrics$subsets_Mt_percent > 20
   qc_metrics$qc_pass <- !(qc_metrics$low_feats | qc_metrics$high_mito)
   
@@ -158,17 +201,17 @@ for (i in seq_along(SeuratList)) {
   # Subset Seurat object
   meta_pass <- seurat_obj@meta.data %>% filter(qc_pass)
   seurat_filtered <- subset(seurat_obj, cells = rownames(meta_pass))
-  seurat_filtered_list[[sample_id]] <- seurat_filtered
+  seurat_filtered_list[[sample]] <- seurat_filtered
   
   # Store for combined plots
   qc_metrics$sample_id <- sample_id
   qc_metrics$nFeature_RNA <- seurat_obj$nFeature_RNA[rownames(qc_metrics)]
   qc_metrics$percent_mt <- qc_metrics$subsets_Mt_percent
   qc_metrics$qc_status <- seurat_obj$qc_status[rownames(qc_metrics)]
-  all_qc_metadata[[i]] <- qc_metrics
+  all_qc_metadata[[sample]] <- qc_metrics
   
   # Print summary
-  cat("\nQC summary for", sample_id, "\n")
+  message("\nQC summary for ", sample_id, "\n")
   print(qc_metrics %>% summarise(
     total_cells = n(),
     kept = sum(qc_pass),
@@ -184,7 +227,7 @@ for (i in seq_along(SeuratList)) {
 qc_df <- do.call(rbind, all_qc_metadata)
 
 # Plot combined histogram: nFeature_RNA
-png(filename = file.path(plotQC_dir, "QC_pass_fail_combined_nReads_nFeatures.png"), width = 12, height = 8, res = 300)
+png(filename = file.path(plotQC_dir, "QC_pass_fail_combined_nReads_nFeatures.png"), width = 12, height = 8, res = 300, units = "in")
 p1 <- ggplot(qc_df, aes(x = detected, fill = qc_pass)) +
   geom_histogram(alpha = 0.5, bins = 100, position = "identity") +
   scale_x_log10() +
@@ -195,7 +238,7 @@ p1 <- ggplot(qc_df, aes(x = detected, fill = qc_pass)) +
 print(p1)
 dev.off()
 
-png(filename = file.path(plotQC_dir, "QC_combined_FeatureScatter.png"), width = 10, height = 7, res = 300)
+png(filename = file.path(plotQC_dir, "QC_combined_FeatureScatter.png"), width = 10, height = 7, res = 300, units = "in")
 p2 <- ggplot(qc_df, aes(x = nFeature_RNA, y = percent_mt, color = qc_pass)) +
   geom_point(alpha = 0.3, size = 0.5) +
   facet_wrap(~sample_id) +
