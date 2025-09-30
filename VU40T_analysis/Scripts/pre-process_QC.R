@@ -53,7 +53,7 @@ for (path in chk_dir_list){
 
 # Store selected species
 species <- tolower(opt$species)
-
+species <- "mouse"
 # Validate species input
 if (!species %in% c("human", "mouse")) {
   stop("Invalid species. Use 'human' or 'mouse'.")
