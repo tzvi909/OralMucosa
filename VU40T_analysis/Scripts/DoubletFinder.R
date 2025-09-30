@@ -7,35 +7,84 @@ library(dplyr)
 library(patchwork)
 library(SingleCellExperiment)
 library(optparse)
-## run tsne and umap clustering
+
+option_list <- list(
+  make_option(c("-s", "--species"),
+              type = "character",
+              default = "human",
+              help = "Species to use [default = %default]. Options: human or mouse",
+              metavar = "character"),
+  make_option(c("-i", "--input"),
+              type = "character",
+              default = ,
+              help = "input RDS dir to load",
+              metavar = "character"),
+  make_option(c("-t", "--n_cores"),
+              type = "integer",
+              default = 1,
+              help = "Number of cores to use to run DoubletFinder [default = %default]",
+              metavar = "character")
+)
+
+opt_parser <- OptionParser(option_list = option_list)
+opt <- parse_args(opt_parser)
+print(opt)
+
+n_cores <- opt$n_cores
+
+species <- opt$species
+
+# Store selected species
+species <- tolower(opt$species)
+
+# Validate species input
+if (!species %in% c("human", "mouse")) {
+  stop("Invalid species. Use 'human' or 'mouse'.")
+}
 
 ### dir setup
 
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
 analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
 git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
+out_prefix_dir <- file.path(git_dir, "Seperate_samples")
 cache_dir <- file.path(proj_dir, "rds_cache")
+
 
 ## check for dirs recursively
 
-chk_dir_list <- list(analysis_dir, git_dir, cache_dir)
+chk_dir_list <- list(analysis_dir, git_dir, cache_dir, out_prefix_dir)
 
 for (path in chk_dir_list){
   if(!(dir.exists(path))){
     dir.create(path, recursive = T)
   }
 }
-if (any(grepl("^ENSMUS", rownames(SeuratList[[i]]@assays[["RNA"]])))) {
-  organism_opt <- "Mouse"
-} else{
-  organism_opt <- "Human"
+if (is.null(opt$input)){
+  seurat_filtered_list <- readRDS(file.path(cache_dir, paste0("NormAndScaled_VU40T_Seurat_filtered_individual_samples_list_", species,".rds")))
+  } else {
+  seurat_filtered_list <- opt$input
+  ### sanity check if using opt$input arg to make sure species matches seurat list RDS
+  if (any(sapply(seurat_filtered_list, function(obj) any(grepl("^ENSMUS", rownames(obj[["RNA"]])))))) {
+    species <- "mouse"
+  } else {
+    species <- "human"
+  }
 }
 
-if (organism_opt == "Mouse"){
-  seurat_filtered_list <- readRDS("NormAndScaled_VU40T_Seurat_filtered_individual_samples_list_Mouse.rds")
+plots_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species), "/Plots/DoubletFinder"))
+res_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species), "/Doublet_detection"))
+
+chk_dir_list <- list(plots_dir, res_dir)
+
+for (path in chk_dir_list){
+  if(!(dir.exists(path))){
+    dir.create(path, recursive = T)
+  }
 }
 
 
+### functs
 
 # Find significant PCs
 get_optimal_pc_count <- function(seurat_obj, variance_cutoff = 90, percent_drop = 0.1) {
@@ -59,62 +108,6 @@ get_optimal_pc_count <- function(seurat_obj, variance_cutoff = 90, percent_drop 
   
   return(min_pc)
 }
-
-pc_summary <- data.frame(sample = character(), optimal_pcs = integer(), stringsAsFactors = FALSE)
-
-for (sample_name in names(seurat_filtered_list)) {
-  seurat_obj <- seurat_filtered_list[[sample_name]]
-  optimal_pc <- get_optimal_pc_count(seurat_obj)
-  
-  pc_summary <- rbind(pc_summary, data.frame(
-    sample = sample_name,
-    optimal_pcs = optimal_pc
-  ))
-}
-pc_summary
-
-# dimUsed <- 30
-
-for (i in seq_along(seurat_filtered_list)){
-  sample_name = names(seurat_filtered_list)[i]
-  seurat_filtered_list[[i]] <- RunUMAP(seurat_filtered_list[[i]], dims=1:pc_summary$optimal_pcs[pc_summary$sample == sample_name], seed.use=666, verbose=FALSE)
-  seurat_filtered_list[[i]] <- RunTSNE(seurat_filtered_list[[i]], dims=1:pc_summary$optimal_pcs[pc_summary$sample == sample_name], seed.use=666)
-}
-
-for (i in seq_along(seurat_filtered_list)){
-  sample_name = names(seurat_filtered_list)[i]
-  seurat_filtered_list[[i]] <- FindNeighbors(seurat_filtered_list[[i]], 
-                                             dims = 1:pc_summary$optimal_pcs[pc_summary$sample == sample_name]
-  )
-  seurat_filtered_list[[i]] <- FindClusters(seurat_filtered_list[[i]], resolution=0.1)
-}
-
-
-for (i in seq_along(seurat_filtered_list)){
-  obj <- seurat_filtered_list[[i]]
-  sample_name <- names(seurat_filtered_list)[i]
-  png(file = paste0(git_dir,"/Seperate_samples/Mouse/Plots/preDoubletFinder_UMAP_and_t-sne_mouse_", sample_name, ".png"), width = 10, height = 5, units = "in", res = 300)
-  plot1 <- DimPlot(obj, reduction = "umap", label = TRUE)
-  plot2 <- DimPlot(obj, reduction = "tsne", label = TRUE)
-  print(plot1 + plot2)
-  
-  dev.off()
-  
-  
-}
-
-##checkpoint
-if (organism_opt == "Mouse"){
-saveRDS(seurat_filtered_list, file = "preDoubletFinder_VU40T_seuratList_Mouse.rds")
-} else{
-  
-}
-
-## DoubletFinder
-
-
-##run if crash
-seurat_filtered_list <- readRDS("preDoubletFinder_VU40T_seuratList_Mouse.rds")
 
 run_doubletfinder_custom <- function(seu_sample_subset, pc_summary, multiplet_rate = NULL, nCores = 1){
   # for debug
@@ -141,28 +134,7 @@ run_doubletfinder_custom <- function(seu_sample_subset, pc_summary, multiplet_ra
     
     print(paste('Setting multiplet rate to', multiplet_rate))
   }
-  ## already done above
-  # # Pre-process seurat object with standard seurat workflow --- 
-  # sample <- NormalizeData(seu_sample_subset)
-  # sample <- FindVariableFeatures(sample)
-  # sample <- ScaleData(sample)
-  # sample <- RunPCA(sample, nfeatures.print = 10)
-  
-  # # Find significant PCs
-  # stdv <- sample[["pca"]]@stdev
-  # percent_stdv <- (stdv/sum(stdv)) * 100
-  # cumulative <- cumsum(percent_stdv)
-  # co1 <- which(cumulative > 90 & percent_stdv < 5)[1] 
-  # co2 <- sort(which((percent_stdv[1:length(percent_stdv) - 1] - 
-  #                      percent_stdv[2:length(percent_stdv)]) > 0.1), 
-  #             decreasing = T)[1] + 1
-  # min_pc <- min(co1, co2)
-  
-  # # Finish pre-processing with min_pc
-  # sample <- RunUMAP(sample, dims = 1:min_pc)
-  # sample <- FindNeighbors(object = sample, dims = 1:min_pc)              
-  # sample <- FindClusters(object = sample, resolution = 0.1)
-  
+
   # pK identification (no ground-truth) 
   #introduces artificial doublets in varying props, merges with real data set and 
   # preprocesses the data + calculates the prop of artficial neighrest neighbours, 
@@ -205,20 +177,77 @@ run_doubletfinder_custom <- function(seu_sample_subset, pc_summary, multiplet_ra
 }
 
 
-# plan(multisession, workers = availableCores() - 1)  # Leave 1 core free
+pc_summary <- data.frame(sample = character(), optimal_pcs = integer(), stringsAsFactors = FALSE)
+
+for (sample_name in names(seurat_filtered_list)) {
+  seurat_obj <- seurat_filtered_list[[sample_name]]
+  optimal_pc <- get_optimal_pc_count(seurat_obj)
+  
+  pc_summary <- rbind(pc_summary, data.frame(
+    sample = sample_name,
+    optimal_pcs = optimal_pc
+  ))
+}
+print(pc_summary)
+write.csv(pc_summary, file = file.path(res_dir, "pc_summary.csv"), row.names = F)
+
+# dimUsed <- 30
+
+for (i in seq_along(seurat_filtered_list)){
+  sample_name = names(seurat_filtered_list)[i]
+  seurat_filtered_list[[i]] <- RunUMAP(seurat_filtered_list[[i]], dims=1:pc_summary$optimal_pcs[pc_summary$sample == sample_name], seed.use=666, verbose=FALSE)
+}
+
+for (i in seq_along(seurat_filtered_list)){
+  sample_name = names(seurat_filtered_list)[i]
+  seurat_filtered_list[[i]] <- FindNeighbors(seurat_filtered_list[[i]], 
+                                             dims = 1:pc_summary$optimal_pcs[pc_summary$sample == sample_name]
+  )
+  seurat_filtered_list[[i]] <- FindClusters(seurat_filtered_list[[i]], resolution=0.1)
+}
+
+
+for (i in seq_along(seurat_filtered_list)){
+  obj <- seurat_filtered_list[[i]]
+  sample_name <- names(seurat_filtered_list)[i]
+  png(file = file.path(plots_dir, paste0("preDoubletFinder_UMAP_", sample_name, ".png"))
+      , width = 10, height = 5, units = "in", res = 300)
+
+  p <- DimPlot(obj, reduction = "umap", label = TRUE)
+  print(p)
+  
+  dev.off()
+  
+  
+}
+
+##checkpoint
+
+saveRDS(seurat_filtered_list, file = file.path(cache_dir, paste0("preDoubletFinder_VU40T_seuratList_",species,".rds")))
+
+
+## DoubletFinder
+
+
+##run if crash
+seurat_filtered_list <- readRDS(file.path(cache_dir, paste0("preDoubletFinder_VU40T_seuratList_",species,".rds")))
+
+pc_summary <- read.csv(file.path(res_dir, "pc_summary.csv"))
+
+
 
 
 for (i in seq_along(seurat_filtered_list)) {
   sample_name <- names(seurat_filtered_list)[i]
   seurat_obj <- seurat_filtered_list[[i]]
   
-  message("🔍 Running DoubletFinder on ", sample_name)
+  message("Running DoubletFinder on ", sample_name)
   
   # Run the custom function
   doublet_meta <- run_doubletfinder_custom(
     seurat_obj, 
     pc_summary = pc_summary, 
-    #nCores = availableCores() - 1 ##run with 1 for Rstudio. change when run as standalone
+    nCores = n_cores ##run with 1 for Rstudio. change when run as standalone
   )
   
   # Merge result back into Seurat object
@@ -229,22 +258,18 @@ for (i in seq_along(seurat_filtered_list)) {
   seurat_filtered_list[[i]] <- seurat_obj
 }
 
-saveRDS(seurat_filtered_list, file = "DoubletFinder_results_VU40T_Mouse.rds")
 
-seurat_filtered_list <- readRDS("DoubletFinder_results_VU40T_Mouse.rds")
-
-
-# # Check how doublets singlets differ in QC measures per sample.
-# VlnPlot(seurat_filtered_list[[1]], group.by = 'sample', split.by = "doublet_finder",
-#         features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
-#         ncol = 3, pt.size = 0) + ggplot2::theme(legend.position = 'right')
-
-## delete duplicate dropletFinder cols
+## delete duplicate doubletfinder cols
 
 seurat_filtered_list <- lapply(seurat_filtered_list, function(seu) {
   seu@meta.data <- seu@meta.data[, !duplicated(colnames(seu@meta.data), fromLast = TRUE)]
   return(seu)
 })
+
+saveRDS(seurat_filtered_list, file = file.path(cache_dir, paste0("DoubletFinder_results_VU40T_",species,".rds")))
+
+seurat_filtered_list <- readRDS(file.path(cache_dir, paste0("DoubletFinder_results_VU40T_",species,".rds")))
+
 
 # Combine metadata from all samples
 doublets_summary <- purrr::map2_dfr(
@@ -272,7 +297,7 @@ doublets_summary <- purrr::map2_dfr(
 # Save to file
 write.table(
   doublets_summary,
-  file = file.path(git_dir, "VU40T_doubletfinder_doublets_summary_mouse.txt"),
+  file = file.path(res_dir, paste0("VU40T_doubletfinder_doublets_summary.txt")),
   quote = FALSE,
   row.names = FALSE,
   sep = "\t"
@@ -283,14 +308,15 @@ write.table(
 
 for (i in seq_along(seurat_filtered_list)){
   sample_name <- names(seurat_filtered_list)[i]
-  plot1 <- DimPlot(seurat_filtered_list[[i]], reduction = "umap", group.by = "doublet_finder", label = TRUE)
-  plot2 <- DimPlot(seurat_filtered_list[[i]], reduction = "tsne", group.by = "doublet_finder", label = TRUE)
-  png(file = paste0(git_dir, "/Seperate_samples/Mouse/Plots/DoubletFinderMarked_UMAP_and_t-sne_", sample_name, ".png"), width = 10, height = 5, units = "in", res = 300)
-  print(plot1 + plot2 +
-          patchwork::plot_annotation(title = paste0("DoubletFinder Classification on UMAP and t-SNE", sample_name))
+  p <- DimPlot(seurat_filtered_list[[i]], reduction = "umap", group.by = "doublet_finder", label = TRUE)
+  
+  png(file = file.path(plots_dir, paste0("DoubletFinderMarked_UMAP_", sample_name, ".png")), 
+  width = 10, height = 5, units = "in", res = 300)
+  
+  print(p +
+        patchwork::plot_annotation(title = paste0("DoubletFinder Classification on UMAP ", sample_name))
   )
   dev.off()
-  
 }
 
 
@@ -304,8 +330,9 @@ for (i in seq_along(seurat_filtered_list)){
   seurat_singlets_list[[i]] <- subset(seurat_filtered_list[[i]], subset = doublet_finder == "Singlet")
   names(seurat_singlets_list)[i] <- names(seurat_filtered_list)[i]
 }
-if (organism_opt == "Mouse"){
-  saveRDS(seurat_singlets_list, file = "VU40T_singlets_only_sep_samples_Mouse.RDS")
-}
 
+saveRDS(seurat_singlets_list, file = file.path(cache_dir, paste0("VU40T_singlets_only_sep_samples_",species,".RDS")))
+
+message("Doublets removed from samples successfully \n
+        RDS checkpoint saved to: ", file.path(cache_dir, paste0("VU40T_singlets_only_sep_samples_",species,".RDS")))
 
