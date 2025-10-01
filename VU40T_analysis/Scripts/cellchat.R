@@ -81,18 +81,18 @@ p2 <- lapply(seq_along(genestoplot), function(i) {
     group.by = "seurat_clusters",
     pt.size  = 0,
     combine  = TRUE) + 
-  NoLegend() +
-  labs(title = stringr::str_to_sentence(tolower(g)), 
-       x = "", y = "") +
-  theme(
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 14, vjust = 0.3),
-    axis.title.y = element_blank(),
-    axis.text.y = element_text(size = 8, angle = 0),
-    axis.title.x = element_blank(),
-    axis.text.x  = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 14),
-    axis.ticks.x = element_blank(),
-    plot.margin = margin(2, 6, 2, 5)
-  )
+    NoLegend() +
+    labs(title = stringr::str_to_sentence(tolower(g)), 
+         x = "", y = "") +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 14, vjust = 0.3),
+      axis.title.y = element_blank(),
+      axis.text.y = element_text(size = 8, angle = 0),
+      axis.title.x = element_blank(),
+      axis.text.x  = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 14),
+      axis.ticks.x = element_blank(),
+      plot.margin = margin(2, 6, 2, 5)
+    )
 })
 plots_list <- append(p, p2)
 p_stack <- wrap_plots(
@@ -439,11 +439,17 @@ image_write(final, path = fout)
 message("Saved: ", fout)
 
 # ### do pathway plots now
-# pathways.show <- c("SPP1") 
+pathways.show <- c("SPP1") 
 # 
-# netAnalysis_contribution(cellchat, signaling = pathways.show)
-# dev.off()
-# 
+netVisual_aggregate(cellchat, signaling = pathways.show, layout = "circle")
+
+
+
+
+
+
+
+
 # pathways.show <- c("LAMININ") 
 # 
 # netAnalysis_contribution(cellchat, signaling = pathways.show)
@@ -489,6 +495,9 @@ for (i in 1:length(pathways.show.all)) {
   ggsave(filename=paste0(pathways.show.all[i], "_L-R_contribution.pdf"), plot=gg, width = 8, height = 5, units = 'in', dpi = 300)
 }
 dev.off() ## force X11 device to close after this if it does not
+
+
+
 
 ## identify signalling roles
 
@@ -552,6 +561,181 @@ png("incoming_patterns_river.png",
     width = 12, height = 6, units = "in", res = 300)
 netAnalysis_river(cellchat, pattern = "incoming")
 dev.off()
+
+
+
+set1 <- c("LAMININ", "COLLAGEN", "SPP1", "FN1", "ncWNT", "EGF", "NRG", "MIF")
+set2 <- c("NOTCH", "ADGRL", "SLITRK")
+
+
+### for pathways we care about from NMF analysis
+pdf("Set1_CirclePlots_CellChat.pdf", width = 6, height = 6)
+
+for (pw in set1) {
+  if (!(pw %in% cellchat@netP$pathways)) {
+    warning(paste("❌ Pathway", pw, "not found."))
+    next
+  }
+  
+  CellChat::netVisual_aggregate(
+    object = cellchat,
+    signaling = pw,
+    layout = "circle",
+    remove.isolate = TRUE
+  )
+  title(main = pw, cex.main = 1.5, font.main = 2)
+}
+
+dev.off()
+
+pdf("Set2_CirclePlots_CellChat.pdf", width = 6, height = 6)
+
+for (pw in set2) {
+  if (!(pw %in% cellchat@netP$pathways)) {
+    warning(paste("❌ Pathway", pw, "not found."))
+    next
+  }
+  
+  CellChat::netVisual_aggregate(
+    object = cellchat,
+    signaling = pw,
+    layout = "circle",
+    remove.isolate = TRUE
+  )
+  title(main = pw, cex.main = 1.5, font.main = 2)
+}
+
+dev.off()
+
+
+# Load required packages only if not already loaded
+if (!require("UpSetR")) install.packages("UpSetR")
+
+
+library(UpSetR)
+library(dplyr)
+
+# ligand and receptor pairs
+receptors <- c(
+  "ITGA2_ITGB1", "ITGA3_ITGB1", "ITGA6_ITGB1", "ITGAV_ITGB8",
+  "ITGA6_ITGB4", "ITGAV_ITGB1", "ITGAV_ITGB6", 
+  "CD44", "SDC1", "SDC4"
+)
+
+# Pathways of interest
+pathways_of_interest <- c("COLLAGEN", "FN1", "LAMININ", "SPP1")
+
+# 2. Subset communication dataframe from CellChat
+comm_df <- subsetCommunication(cellchat) 
+
+# Filter the communication data frame to those pathways
+comm_subset <- comm_df %>%
+  filter(pathway_name %in% pathways_of_interest)
+
+# Extract receptor list per pathway
+receptors_by_pathway <- comm_subset %>%
+  group_by(pathway_name) %>%
+  summarise(receptors = list(unique(receptor))) %>%
+  tibble::deframe()  # converts to named list
+
+df <- tibble::tibble(
+  pathway = rep(names(receptors_by_pathway), times = sapply(receptors_by_pathway, length)),
+  receptor = unlist(receptors_by_pathway)
+)
+
+binary_mat <- df %>%
+  mutate(value = 1) %>%
+  tidyr::pivot_wider(names_from = pathway, values_from = value, values_fill = 0)
+
+png(file.path(plot_dir, "UpsetPlot_receptors_in_SPP1_laminin_col_fn1.png"),
+    width = 8, height  = 6, units = "in", res = 300)
+p<-ComplexUpset::upset(binary_mat, intersect = names(receptors_by_pathway), name = "Receptors by Pathway")
+print(p)
+dev.off()
+
+
+# Filter and prepare the data
+dot_data <- comm_df %>%
+  filter(pathway_name %in% pathways_of_interest) %>%
+  filter(receptor %in% receptors) %>%
+  mutate(
+    safe_pval = pmax(pval, 1e-300)  # Prevent division by zero
+  ) %>%
+  group_by(pathway_name, interaction_name_2) %>%
+  summarise(
+    mean_prob = mean(prob, na.rm = TRUE),
+    mean_pval = mean(safe_pval, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Ensure factors are ordered
+dot_data$pathway_name <- factor(dot_data$pathway_name, levels = pathways_of_interest)
+dot_data$interaction_name_2 <- factor(dot_data$interaction_name_2, levels = rev(unique(dot_data$interaction_name_2)))
+
+# Plot
+
+png(file.path(plot_dir, "Dotplot_L-R_pairs_SPP1_laminin_col_fn1.png"),
+    width = 4, height  = 16, units = "in", res = 300)
+p <- ggplot(dot_data, aes(x = pathway_name, y = interaction_name_2)) +
+  geom_point(aes(size = 1 / mean_pval, color = mean_prob)) +
+  viridis::scale_color_viridis(option = "viridis", name = "Comm. Prob") +
+  scale_size_continuous(
+    name = "p-value",
+    breaks = 1 / c(1e-2, 1e-5, 1e-10, 1e-50, 1e-100),
+    labels = c("1e-2", "1e-5", "1e-10", "1e-50", "1e-100"),
+    range = c(2, 6)
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_blank(),
+    legend.position = "right",
+    panel.grid = element_blank()
+  ) +
+  ggtitle("L-R Pairs: Collagen,\nFN1, Laminin, SPP1")
+print(p)
+dev.off()
+
+
+# Create binary matrix
+binary_matrix <- sapply(pathways_of_interest, function(pw) {
+  lr_in_pathway <- comm_subset %>%
+    filter(pathway_name == pw) %>%
+    pull(receptor)
+  
+  as.integer(receptors %in% lr_in_pathway)
+})
+
+
+# Set rownames for clarity
+rownames(binary_matrix) <- receptors
+rownames(binary_matrix) <- stringr::str_replace_all(rownames(binary_matrix) ,"_","/")
+# View
+print(binary_matrix)
+
+
+df_long <- reshape2::melt(binary_matrix)
+colnames(df_long) <- c("Receptor", "Pathway", "Involved")
+
+png(file.path(plot_dir, "Heatmap_Common_Sig_receptors_SPP1_laminin_col_fn1.png"),
+    width = 5, height  = 7, units = "in", res = 300)
+# Plot heatmap
+p<-ggplot(df_long, aes(x = Pathway, y = Receptor, fill = factor(Involved))) +
+  geom_tile(color = "white") +
+  scale_fill_manual(values = c("0" = "white", "1" = "steelblue")) +
+  theme_minimal(base_size = 12) +
+  labs(title = "Common Receptor Involvement\nin Signalling Pathways",
+       fill = "Involved"
+       ) + 
+  NoLegend()+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_text(hjust = 0.5),
+    plot.title = element_text(hjust = 0.5)
+  )
+print(p)
+dev.off()
+
 
 ## look at functional similarity
 # 
