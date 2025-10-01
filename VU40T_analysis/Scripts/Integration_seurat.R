@@ -10,23 +10,52 @@ library(clustree)
 library(biomaRt)
 library(msigdbr)
 library(enrichplot)
-library(clusterProfiler)
+# library(clusterProfiler)
 library(ComplexHeatmap)
 library(circlize)  # for colors)
 library(RColorBrewer)
+library(optparse)
+
+###---Opts----
+
+option_list <- list(
+  make_option(c("-s", "--species"),
+              type = "character",
+              default = "human",
+              help = "Species to use [default = %default]. Options: human or mouse",
+              metavar = "character"),
+  make_option(c("-i", "--input"),
+              type = "character",
+              default = ,
+              help = "input RDS dir to load",
+              metavar = "character"),
+  make_option(c("-n", "--n_cores"),
+              type = "integer",
+              default = 1,
+              help = "Number of cores to use to run  [default = %default]",
+              metavar = "character")
+)
 
 
+opt_parser <- OptionParser(option_list = option_list)
+opt <- parse_args(opt_parser)
+print(opt)
 
+n_cores <- opt$n_cores
+
+Species <- opt$species
 
 ## to avoid hitting that 20gb quota on home dir,
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
 analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
 git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
+out_prefix_dir <- file.path(git_dir, "Integrated")
+
 cache_dir <- file.path(proj_dir, "rds_cache")
 
 ## check for dirs recursively
 
-chk_dir_list <- list(analysis_dir, git_dir, cache_dir)
+chk_dir_list <- list(analysis_dir, git_dir, cache_dir, out_prefix_dir)
 
 for (path in chk_dir_list){
   if(!(dir.exists(path))){
@@ -38,7 +67,12 @@ for (path in chk_dir_list){
 
 
 
-make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T){
+make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, plot_dir = "."){
+  out_dir <- file.path(plot_dir, "MarkerDotplots")
+  if(!(dir.exists(out_dir))){
+    dir.create(out_dir, recursive = T)
+  } 
+    
   colnames(genelist) <- sapply(colnames(genelist), function(x) {
     parts <- stringr::str_split(x, "_")[[1]]
     if (length(parts) >= 2 && parts[2] != toupper(parts[2])) {
@@ -110,7 +144,7 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T){
       ggplot2::ggtitle(colnames(genelist)[i]) +
       scale_color_gradient(low = "lightgrey", high = "red") +
       theme(
-        axis.text.x = element_text(angle = 45, hjust = 1)) + 
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 9)) + 
       labs(x = "Genes", y = "Clusters")  # Relabel axes
     
     # Modify x-axis labels to Title Case if using mouse data
@@ -127,21 +161,21 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T){
       if (num_genes <= 6) {
         plot_width <- 6  # Small gene sets: fixed small width
       } else {
-        plot_width <- min(max(2 * num_genes + 4, 10), 50)
+        plot_width <- min(max(2 * num_genes + 5, 12), 50)
       }
       colnames(genelist) <- gsub(" ", "_", colnames(genelist))
       
       
       if (all(seurat_obj$species == "Human")) {
         png(file = file.path(
-          git_dir,
-          paste0("Integrated/Plots/MarkerDotplots/HumanONLY_Dotplot_clusterResolution0.3_",
+          out_dir ,
+          paste0("HumanONLY_Dotplot_clusterResolution0.3_",
                  outPrefix, "_", colnames(genelist)[i], "_VU40T_combined.png")),
           width = plot_width, height = 4, units = "in", res = 300)
       } else {
         png(file = file.path(
-          git_dir,
-          paste0("Integrated/Mouse/Plots/MouseONLY_MarkerDotplots/Dotplot_clusterResolution0.6_",
+          out_dir,
+          paste0("Dotplot_clusterResolution0.6_",
                  outPrefix, "_", colnames(genelist)[i], "_VU40T_combined.png")),
           width = plot_width, height = 4, units = "in", res = 300)
       }
@@ -154,6 +188,30 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T){
     }
   }
 }
+
+if (is.null(opt$input)){
+  preIntegrationSeuratList <- readRDS(file.path(cache_dir, paste0("VU40T_singlets_only_sep_samples_",species,".RDS")))
+} else {
+  preIntegrationSeuratList <- opt$input
+  ### sanity check if using opt$input arg to make sure species matches seurat list RDS
+  if (any(sapply(preIntegrationSeuratList, function(obj) any(grepl("^ENSMUS", rownames(obj[["RNA"]])))))) {
+    species <- "mouse"
+  } else {
+    species <- "human"
+  }
+}
+
+plots_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species), "/Plots"))
+res_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species)))
+
+out_dir_list <- list(plots_dir, res_dir)
+
+for (path in out_dir_list){
+  if(!(dir.exists(path))){
+    dir.create(path, recursive = T)
+  }
+}
+
 ## species_df
 
 species_df <- read.csv(file.path(git_dir, "/VU40T_species_assignment_by_reads.csv"))[,-c(1)]
@@ -672,11 +730,11 @@ if (all(VU40T.combined$species == "Human")){
     scale_color_viridis_c()
   print(p)
   dev.off()
-  ### new human doplots
+  ### new human dotplots
   genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_2.xlsx"), sheet = 8)
   make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_onlySET3_Epithelial"))
  
-  a ### and violin plots
+  ### and violin plots
   genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_2.xlsx"), sheet = 9,col_names = F)
   make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_onlySET3_Epithelial"))
   
@@ -712,6 +770,11 @@ if (all(VU40T.combined$species == "Human")){
     
     print(p_stack)
     dev.off
+    
+    ### new human dotplots -> HNSCC and EMT
+    genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_3.xlsx"), sheet = 11, skip = 1)
+    make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_Fig4_Epithelial"), plot_dir = plots_dir)
+    
   }
 }
 ## genelist 3 -> mouse and human epithelial, fibroblast and EMT markers

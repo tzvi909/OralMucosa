@@ -43,6 +43,82 @@ fibros <-  readRDS(file.path(cache_dir, "VU40T_combined_joined_0.6_res_mouseOnly
 fibros@graphs <- list()
 fibros <- subset(fibros, seurat_clusters != "13")
 
+### quick violin plots for fig 6 of TGFA and TGFBR3 before merging obj 
+### showing 1-way communication of the L-R that is dependent on epi contact
+### w fibroblasts in the model
+
+genestoplot <- c("TGFA", "TGFBR3")
+
+p <- lapply(seq_along(genestoplot), function(i) {
+  g <- genestoplot[i]
+  gp <- VlnPlot(
+    epis,
+    features = g,
+    group.by = "seurat_clusters",
+    pt.size  = 0,
+    combine  = TRUE
+  ) + 
+    NoLegend() +
+    labs(title = g, x = "",
+         y = "") +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 14, , vjust = 0.4),
+      axis.title.y = element_blank(),
+      axis.text.y = element_text(size = 8, angle = 0),
+      axis.title.x = element_blank(),
+      axis.text.x  = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 14),
+      axis.ticks.x = element_blank(),
+      plot.margin = margin(2, 6, 2, 5)
+    )
+})
+
+
+p2 <- lapply(seq_along(genestoplot), function(i) {
+  g <- genestoplot[i]
+  VlnPlot(
+    fibros,
+    features = g,
+    group.by = "seurat_clusters",
+    pt.size  = 0,
+    combine  = TRUE) + 
+  NoLegend() +
+  labs(title = stringr::str_to_sentence(tolower(g)), 
+       x = "", y = "") +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 14, vjust = 0.3),
+    axis.title.y = element_blank(),
+    axis.text.y = element_text(size = 8, angle = 0),
+    axis.title.x = element_blank(),
+    axis.text.x  = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 14),
+    axis.ticks.x = element_blank(),
+    plot.margin = margin(2, 6, 2, 5)
+  )
+})
+plots_list <- append(p, p2)
+p_stack <- wrap_plots(
+  plots_list,
+  ncol = 2,
+  guides = "keep"
+) +
+  plot_layout(
+    guides = "collect"
+  ) +
+  plot_annotation(
+    title = "TGFA-TGFBR3 L-R Epithelial and Fibroblast Expression"
+  ) &
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.margin = margin(20, 5, 20, 5),
+    panel.spacing = unit(2, "lines")
+  )
+print(p_stack)
+
+png(file.path(plot_dir, "VlnPlot_TGFA-TGFBR3_L-R.png"),
+    width = 10, height = 10, units = "in", res = 300)
+print(p_stack)
+dev.off()
+
+
 epis$seurat_clusters <- sapply(epis$seurat_clusters, function(x) paste0(x, "-human"))
 fibros$seurat_clusters <- sapply(fibros$seurat_clusters, function(x) paste0(x, "-mouse"))
 
