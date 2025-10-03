@@ -1,0 +1,17 @@
++--------------------------------------------------------------------------+
+| Job on the BlueBEAR cluster:
+| Starting at Sat Sep 20 00:38:51 2025 for daviesjp(859923)
+| Identity jobid 28455253 jobname runpyscenic.sh
+| Running against project gendood-3dmucosa and in partition emerald-shared
+| Requested cpu=48,mem=120G,node=1,billing=48 - 1-00:00:00 walltime
+| Allocated cpu=48,mem=120G,node=1,billing=48
+| Assigned to nodes bear-pg0201u29b
+| Command /rds/projects/g/gendood-3dmucosa/scRNAseqAnalysis/OralMucosa/VU40T_analysis/Scripts/runpyscenic.sh
+| WorkDir /rds/projects/g/gendood-3dmucosa/scRNAseqAnalysis/OralMucosa/VU40T_analysis/Scripts
++--------------------------------------------------------------------------+
++--------------------------------------------------------------------------+
+| Finished at Sat Sep 20 02:35:25 2025 for daviesjp(859923) on the BlueBEAR Cluster
+| Required (1-06:09:42 cputime, 19831717K memory used) - 01:56:36 walltime
+| JobState COMPLETING - Reason None
+| Exitcode 0:0
++--------------------------------------------------------------------------+

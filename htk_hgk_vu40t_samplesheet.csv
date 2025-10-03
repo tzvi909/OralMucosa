@@ -1,0 +1,11 @@
+sample,fastq_1,fastq_2
+GB240624-MW_HGK_S4,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_HGK_S4_L001_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_HGK_S4_L001_R2_001.fastq.gz
+GB240624-MW_HGK_S4,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_HGK_S4_L002_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_HGK_S4_L002_R2_001.fastq.gz
+GB240624-MW_HTK_S5,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_HTK_S5_L001_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_HTK_S5_L001_R2_001.fastq.gz
+GB240624-MW_HTK_S5,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_HTK_S5_L002_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_HTK_S5_L002_R2_001.fastq.gz
+GB240624-MW_R1-A_S1,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R1-A_S1_L001_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R1-A_S1_L001_R2_001.fastq.gz
+GB240624-MW_R1-A_S1,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R1-A_S1_L002_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R1-A_S1_L002_R2_001.fastq.gz
+GB240624-MW_R2-HGK_S3,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R2-HGK_S3_L001_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R2-HGK_S3_L001_R2_001.fastq.gz
+GB240624-MW_R2-HGK_S3,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R2-HGK_S3_L002_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R2-HGK_S3_L002_R2_001.fastq.gz
+GB240624-MW_R2-VU40T_S2,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R2-VU40T_S2_L001_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R2-VU40T_S2_L001_R2_001.fastq.gz
+GB240624-MW_R2-VU40T_S2,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R2-VU40T_S2_L002_R1_001.fastq.gz,/rds/projects/g/gendood-3dmucosa/Globus/mkfastq/H2JV3DRX5/GB240624-MW_R2-VU40T_S2_L002_R2_001.fastq.gz
