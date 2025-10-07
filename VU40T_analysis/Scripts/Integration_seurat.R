@@ -10,7 +10,7 @@ library(clustree)
 library(biomaRt)
 library(msigdbr)
 library(enrichplot)
-# library(clusterProfiler)
+library(clusterProfiler)
 library(ComplexHeatmap)
 library(circlize)  # for colors)
 library(RColorBrewer)
@@ -43,7 +43,7 @@ print(opt)
 
 n_cores <- opt$n_cores
 
-Species <- opt$species
+species <- opt$species
 
 ## to avoid hitting that 20gb quota on home dir,
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
@@ -72,7 +72,7 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, pl
   if(!(dir.exists(out_dir))){
     dir.create(out_dir, recursive = T)
   } 
-    
+  
   colnames(genelist) <- sapply(colnames(genelist), function(x) {
     parts <- stringr::str_split(x, "_")[[1]]
     if (length(parts) >= 2 && parts[2] != toupper(parts[2])) {
@@ -192,7 +192,7 @@ make_marker_dotplots <- function(seurat_obj, genelist, outPrefix, export = T, pl
 if (is.null(opt$input)){
   preIntegrationSeuratList <- readRDS(file.path(cache_dir, paste0("VU40T_singlets_only_sep_samples_",species,".RDS")))
 } else {
-  preIntegrationSeuratList <- opt$input
+  preIntegrationSeuratList <- readRDS(opt$input)
   ### sanity check if using opt$input arg to make sure species matches seurat list RDS
   if (any(sapply(preIntegrationSeuratList, function(obj) any(grepl("^ENSMUS", rownames(obj[["RNA"]])))))) {
     species <- "mouse"
@@ -479,6 +479,18 @@ markers <- FindAllMarkers(VU40T.combined,
                           min.pct = 0.25,
                           logfc.threshold = 0.25)
 sig_markers_0.3 <- markers[markers$p_val_adj <= 0.05, ]
+
+
+# 
+# markers <- FindAllMarkers(VU40T.combined,
+#                           only.pos = F,
+#                           min.pct = 0,
+#                           logfc.threshold = 0)
+# 
+# c6_markers <- markers[markers$cluster == 6, ]
+
+# c6_markers
+
 write.csv(markers, file = file.path(
   git_dir, 
   "/Integrated/HumanOnly10_PCs_ClusterMarkers_res_0.3_VU40T_combined.csv"), 
@@ -733,7 +745,7 @@ if (all(VU40T.combined$species == "Human")){
   ### new human dotplots
   genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_2.xlsx"), sheet = 8)
   make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_onlySET3_Epithelial"))
- 
+  
   ### and violin plots
   genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_2.xlsx"), sheet = 9,col_names = F)
   make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_onlySET3_Epithelial"))
@@ -775,6 +787,42 @@ if (all(VU40T.combined$species == "Human")){
     genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_3.xlsx"), sheet = 11, skip = 1)
     make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(Species, "_Fig4_Epithelial"), plot_dir = plots_dir)
     
+    FeaturePlot(VU40T.combined, features=c("DDR1", "RHOA")) & scale_color_viridis()
+    
+    pemt_genes <- c(
+      
+      "VIM","FN1","ITGA5","ITGB1","SERPINE1","LAMC2","LAMB3","PDPN",
+      
+      "MMP14","MMP1","MMP10","TGFBI","PLAUR","FSCN1","COL7A1",
+      
+      "CXCL8","CXCL1","SNAI2","ZEB1","KRT14","ITGA6"
+      
+    )
+    
+    
+    
+    rho_acto_genes <- c(
+      
+      "RHOA","RHOC","ROCK1","ROCK2","MYL9","MYH9","MYH10","ACTN1",
+      
+      "TAGLN","DIAPH1","DIAPH3","LIMK1","LIMK2","CFL1","PFN1",
+      
+      "PPP1R12A","MYLK","DAAM1","ARHGEF11","ARHGEF12"
+      
+    )
+    modules = list(pemt_genes, rho_acto_genes)
+    names(modules) <- c("pemt_genes", "rho_acto_genes")
+    seu <- VU40T.combined
+    for (nm in names(modules)) {
+      
+      seu <- AddModuleScore(seu, features = list(modules[[nm]]), name = nm, nbin = 24, ctrl = 100)
+      
+    }
+    
+    FeaturePlot(seu, features = c("pemt_genes1","rho_acto_genes1"),
+                
+                order = TRUE, cols = c("grey90","red"))
+    VlnPlot(seu, features = c("pemt_genes1","rho_acto_genes1"))
   }
 }
 ## genelist 3 -> mouse and human epithelial, fibroblast and EMT markers
@@ -2023,7 +2071,6 @@ if (all(VU40T.combined$species == "Human")){
   out <- file.path(proj_dir, "scRNAseqAnalysis/human_epi_mtx")
   dir.create(out, recursive=TRUE, showWarnings=FALSE)
   write.table(as.matrix(Matrix::t(GetAssayData(object = epi, slot = "counts"))), 
-             file.path(out,'human_epi_counts.csv'), 
-             sep = ',', row.names = T, col.names = T, quote = F)
+              file.path(out,'human_epi_counts.csv'), 
+              sep = ',', row.names = T, col.names = T, quote = F)
 }
-

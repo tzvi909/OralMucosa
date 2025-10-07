@@ -7,6 +7,112 @@ library(biomaRt)
 library(CellChat)
 library(parallelly)
 library(future)
+library(grid)
+
+#---functs---
+
+### custom heatmap function to reorder the cols to get epi first before fibroblasts
+reordered_netAnalysis_signalingRole_heatmap <- function(object, signaling = NULL, pattern = c("outgoing", "incoming","all"), slot.name = "netP",
+                                              color.use = NULL, color.heatmap = "BuGn",
+                                              title = NULL, width = 10, height = 8, font.size = 8, font.size.title = 10, cluster.rows = FALSE, cluster.cols = FALSE){
+  pattern <- match.arg(pattern)
+  if (length(slot(object, slot.name)$centr) == 0) {
+    stop("Please run `netAnalysis_computeCentrality` to compute the network centrality scores! ")
+  }
+  centr <- slot(object, slot.name)$centr
+  outgoing <- matrix(0, nrow = nlevels(object@idents), ncol = length(centr))
+  incoming <- matrix(0, nrow = nlevels(object@idents), ncol = length(centr))
+  dimnames(outgoing) <- list(levels(object@idents), names(centr))
+  dimnames(incoming) <- dimnames(outgoing)
+  for (i in 1:length(centr)) {
+    outgoing[,i] <- centr[[i]]$outdeg
+    incoming[,i] <- centr[[i]]$indeg
+  }
+  if (pattern == "outgoing") {
+    mat <- t(outgoing)
+    legend.name <- "Outgoing"
+  } else if (pattern == "incoming") {
+    mat <- t(incoming)
+    legend.name <- "Incoming"
+  } else if (pattern == "all") {
+    mat <- t(outgoing+ incoming)
+    legend.name <- "Overall"
+  }
+  
+  # reorder to split the classes properly
+  epi_levels <- c("0-E", "1-E", "2-E", "3-E", "4-E", "5-E", "6-E", "7-E")
+  fib_levels <- c("0-Fib", "1-Fib", "2-Fib", "3-Fib", "4-Fib", "5-Fib", "6-Fib",
+                  "7-Fib", "8-Fib", "9-Fib", "10-Fib", "11-Fib", "12-Fib")   
+  
+  new_order <- c(epi_levels, fib_levels)
+  mat <- mat[, new_order, drop = FALSE]
+  
+  
+  if (is.null(title)) {
+    title <- paste0(legend.name, " signaling patterns")
+  } else {
+    title <- paste0(paste0(legend.name, " signaling patterns"), " - ",title)
+  }
+  
+  if (!is.null(signaling)) {
+    mat1 <- mat[rownames(mat) %in% signaling, , drop = FALSE]
+    mat <- matrix(0, nrow = length(signaling), ncol = ncol(mat))
+    idx <- match(rownames(mat1), signaling)
+    mat[idx[!is.na(idx)], ] <- mat1
+    dimnames(mat) <- list(signaling, colnames(mat1))
+  }
+  mat.ori <- mat
+  mat <- sweep(mat, 1L, apply(mat, 1, max), '/', check.margin = FALSE)
+  mat[mat == 0] <- NA
+  
+  
+  if (is.null(color.use)) {
+    color.use <- scPalette(length(colnames(mat)))
+  }
+  color.heatmap.use = grDevices::colorRampPalette((RColorBrewer::brewer.pal(n = 9, name = color.heatmap)))(100)
+  
+  df<- data.frame(group = colnames(mat)); rownames(df) <- colnames(mat)
+  names(color.use) <- colnames(mat)
+  col_annotation <- ComplexHeatmap::HeatmapAnnotation(df = df, col = list(group = color.use),which = "column",
+                                      show_legend = FALSE, show_annotation_name = FALSE,
+                                      simple_anno_size = grid::unit(0.2, "cm"))
+  ha2 = ComplexHeatmap::HeatmapAnnotation(Strength = ComplexHeatmap::anno_barplot(colSums(mat.ori), 
+                                                                                  border = FALSE,
+                                                                                  gp = gpar(fill = color.use, col=color.use)), 
+                                                                                  show_annotation_name = FALSE)
+  
+  pSum <- rowSums(mat.ori)
+  pSum.original <- pSum
+  pSum <- -1/log(pSum)
+  pSum[is.na(pSum)] <- 0
+  idx1 <- which(is.infinite(pSum) | pSum < 0)
+  if (length(idx1) > 0) {
+    values.assign <- seq(max(pSum)*1.1, max(pSum)*1.5, length.out = length(idx1))
+    position <- sort(pSum.original[idx1], index.return = TRUE)$ix
+    pSum[idx1] <- values.assign[match(1:length(idx1), position)]
+  }
+  
+  ha1 = ComplexHeatmap::rowAnnotation(Strength = ComplexHeatmap::anno_barplot(pSum, border = FALSE), show_annotation_name = FALSE)
+  
+  if (min(mat, na.rm = T) == max(mat, na.rm = T)) {
+    legend.break <- max(mat, na.rm = T)
+  } else {
+    legend.break <- c(round(min(mat, na.rm = T), digits = 1), round(max(mat, na.rm = T), digits = 1))
+  }
+  ht1 = ComplexHeatmap::Heatmap(mat, col = color.heatmap.use, na_col = "white", name = "Relative strength",
+                  bottom_annotation = col_annotation, top_annotation = ha2, right_annotation = ha1,
+                  cluster_rows = cluster.rows,cluster_columns = cluster.rows,
+                  row_names_side = "left",row_names_rot = 0,row_names_gp = gpar(fontsize = font.size),column_names_gp = gpar(fontsize = font.size),
+                  width = unit(width, "cm"), height = unit(height, "cm"),
+                  column_title = title,column_title_gp = gpar(fontsize = font.size.title),column_names_rot = 90,
+                  heatmap_legend_param = list(title_gp = gpar(fontsize = 8, fontface = "plain"),title_position = "leftcenter-rot",
+                                              border = NA, at = legend.break,
+                                              legend_height = unit(20, "mm"),labels_gp = gpar(fontsize = 8),grid_width = unit(2, "mm"))
+  )
+  #  draw(ht1)
+  return(ht1)
+}
+
 
 # --- determine number of cores ---
 available <- parallelly::availableCores()
@@ -292,12 +398,6 @@ cellchat <- filterCommunication(cellchat, min.cells = 10)
 cellchat <- computeCommunProbPathway(cellchat)
 cellchat <- aggregateNet(cellchat)
 
-saveRDS(cellchat, 
-        file = file.path(cache_dir, "VU40T_cellchat_res.rds")
-)
-
-cellchat <- readRDS(file.path(cache_dir, "VU40T_cellchat_res.rds"))
-## visualisation
 # make sure idents are named by cell barcodes
 if (is.null(names(cellchat@idents))) {
   names(cellchat@idents) <- colnames(cellchat@data.signaling)
@@ -325,6 +425,18 @@ for (slot in c("count", "weight", "prob", "pval")) {
 rownames(cellchat@netP$prob) <- fix_names(rownames(cellchat@netP$prob))
 colnames(cellchat@netP$prob) <- fix_names(colnames(cellchat@netP$prob))
 
+
+# Compute the network centrality scores - takes 2 secs
+cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
+
+saveRDS(cellchat, 
+        file = file.path(cache_dir, "VU40T_cellchat_res.rds")
+)
+
+cellchat <- readRDS(file.path(cache_dir, "VU40T_cellchat_res.rds"))
+## visualisation
+
+
 levels(cellchat@idents)
 
 # reorder to split the classes properly
@@ -333,7 +445,8 @@ fib_levels <- c("0-Fib", "1-Fib", "2-Fib", "3-Fib", "4-Fib", "5-Fib", "6-Fib",
                 "7-Fib", "8-Fib", "9-Fib", "10-Fib", "11-Fib", "12-Fib")   # <-- edit to your names
 
 new_order <- c(epi_levels, fib_levels)
-cellchat@idents <- factor(cellchat@idents, levels = new_order)
+
+
 
 
 
@@ -477,9 +590,15 @@ netVisual_aggregate(cellchat, signaling = pathways.show, layout = "circle")
 pathways.show.all <- cellchat@netP$pathways
 # check the order of cell identity to set suitable vertex.receiver
 levels(cellchat@idents)
-fib_idents = grep("Fib", levels(cellchat@idents))
-# vertex.receiver = seq(1,length(target_idents)) # Fibroblast clusters will be set to left most Target nodes, Epithelial clusters will be used on the right hand side
-epi_idents = grep("E", levels(cellchat@idents))
+# fib_idents = grep("Fib", levels(cellchat@idents))
+# # vertex.receiver = seq(1,length(target_idents)) # Fibroblast clusters will be set to left most Target nodes, Epithelial clusters will be used on the right hand side
+# epi_idents = grep("E", levels(cellchat@idents))
+
+# Combine and sort lexicographically
+lexicographic_order <- sort(c(levels(cellchat@idents)))
+## use indices for lexicographic epi_idents before reordering which didn't work
+epi_idents_old <- grep("E", lexicographic_order)
+
 object <- cellchat ## to avoid object errors
 setwd(plot_dir)  ## netVisual exports all plots to the working directory
 for (i in 1:length(pathways.show.all)) {
@@ -487,7 +606,7 @@ for (i in 1:length(pathways.show.all)) {
   # Visualize communication network associated with both signaling pathway and individual L-R pairs
   netVisual(object = object,
             signaling = pathways.show.all[i],
-            vertex.receiver = epi_idents,
+            vertex.receiver = epi_idents_old,
             layout = "hierarchy" ,
             out.format = "pdf")
   # Compute and visualize the contribution of each ligand-receptor pair to the overall signaling pathway
@@ -501,8 +620,7 @@ dev.off() ## force X11 device to close after this if it does not
 
 ## identify signalling roles
 
-# Compute the network centrality scores - takes 2 secs
-cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
+
 # Visualize the computed centrality scores using heatmap, allowing ready identification of major signaling roles of cell groups
 
 # while (dev.cur() != 1 && names(dev.cur()) != "RStudioGD") dev.off()
@@ -515,15 +633,148 @@ for (i in 1:length(pathways.show.all)) {
   dev.off()
 }
 
-ht1 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "outgoing", 
-                                         height = 12,
-                                         width = 13)
-ht2 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "incoming", 
-                                         height = 12,
-                                         width = 12)
-png("incoming_and_outgoing_signallingRole_heatmap.png", 
-    width = 14, height = 8, units = "in", res = 300)
-ht1 + ht2
+signalling_groups <- list(
+  Group1 = c("LAMININ", "COLLAGEN", "SPP1", "FN1"),
+  Group2 = c("ncWNT", "EGF", "NRG", "MIF"),
+  Group3 = c("FGF", "PDGF", "VEGF", "ANGPTL", "CypA"),
+  Group4 = c("NOTCH", "ADGRL", "THBS", "SLITRK", "MK", "TENASCIN"),
+  Group5 = c("TRAIL", "EPHA", "EPHB", "APP", "SLIT", "VISFATIN")
+)
+
+## extract data from cellchat object used for 
+patterns <- c("incoming", "outgoing")
+
+object <- cellchat
+slot.name <- "netP"
+centr <- slot(object, slot.name)$centr
+outgoing <- matrix(0, nrow = nlevels(object@idents), ncol = length(centr))
+incoming <- matrix(0, nrow = nlevels(object@idents), ncol = length(centr))
+dimnames(outgoing) <- list(levels(object@idents), names(centr))
+dimnames(incoming) <- dimnames(outgoing)
+for (i in 1:length(centr)) {
+  outgoing[,i] <- centr[[i]]$outdeg
+  incoming[,i] <- centr[[i]]$indeg
+}
+
+for (pattern in patterns){
+  if (pattern == "outgoing") {
+    mat <- t(outgoing)
+    legend.name <- "Outgoing"
+  } else if (pattern == "incoming") {
+    mat <- t(incoming)
+    legend.name <- "Incoming"
+  } else if (pattern == "all") {
+    mat <- t(outgoing+ incoming)
+    legend.name <- "Overall"
+  }
+  mat <- mat[, new_order, drop = FALSE]
+  
+  # if (is.null(title)) {
+  #   title <- paste0(legend.name, " signaling patterns")
+  # } else {
+  #   title <- paste0(paste0(legend.name, " signaling patterns"), " - ",title)
+  # }
+  
+  if (!is.null(signaling)) {
+    mat1 <- mat[rownames(mat) %in% signaling, , drop = FALSE]
+    mat <- matrix(0, nrow = length(signaling), ncol = ncol(mat))
+    idx <- match(rownames(mat1), signaling)
+    mat[idx[!is.na(idx)], ] <- mat1
+    dimnames(mat) <- list(signaling, colnames(mat1))
+  }
+  mat.ori <- mat
+  mat <- sweep(mat, 1L, apply(mat, 1, max), '/', check.margin = FALSE)
+  mat[mat == 0] <- NA
+  print(mat)
+  # write.csv(mat, file.path(tbls_dir, paste0(pattern, "_communication_centrality_scores.csv")))
+
+}
+
+#   
+#   
+#   if (is.null(color.use)) {
+#     color.use <- scPalette(length(colnames(mat)))
+#   }
+#   color.heatmap.use = grDevices::colorRampPalette((RColorBrewer::brewer.pal(n = 9, name = color.heatmap)))(100)
+#   
+#   df<- data.frame(group = colnames(mat)); rownames(df) <- colnames(mat)
+#   names(color.use) <- colnames(mat)
+#   col_annotation <- HeatmapAnnotation(df = df, col = list(group = color.use),which = "column",
+#                                       show_legend = FALSE, show_annotation_name = FALSE,
+#                                       simple_anno_size = grid::unit(0.2, "cm"))
+#   ha2 = HeatmapAnnotation(Strength = anno_barplot(colSums(mat.ori), border = FALSE,gp = gpar(fill = color.use, col=color.use)), show_annotation_name = FALSE)
+#   
+#   pSum <- rowSums(mat.ori)
+#   pSum.original <- pSum
+#   pSum <- -1/log(pSum)
+#   pSum[is.na(pSum)] <- 0
+#   idx1 <- which(is.infinite(pSum) | pSum < 0)
+#   if (length(idx1) > 0) {
+#     values.assign <- seq(max(pSum)*1.1, max(pSum)*1.5, length.out = length(idx1))
+#     position <- sort(pSum.original[idx1], index.return = TRUE)$ix
+#     pSum[idx1] <- values.assign[match(1:length(idx1), position)]
+#   }
+#   
+#   ha1 = rowAnnotation(Strength = anno_barplot(pSum, border = FALSE), show_annotation_name = FALSE)
+#   
+#   if (min(mat, na.rm = T) == max(mat, na.rm = T)) {
+#     legend.break <- max(mat, na.rm = T)
+#   } else {
+#     legend.break <- c(round(min(mat, na.rm = T), digits = 1), round(max(mat, na.rm = T), digits = 1))
+#   }
+#   ht1 = Heatmap(mat, col = color.heatmap.use, na_col = "white", name = "Relative strength",
+#                 bottom_annotation = col_annotation, top_annotation = ha2, right_annotation = ha1,
+#                 cluster_rows = cluster.rows,cluster_columns = cluster.rows,
+#                 row_names_side = "left",row_names_rot = 0,row_names_gp = gpar(fontsize = font.size),column_names_gp = gpar(fontsize = font.size),
+#                 width = unit(width, "cm"), height = unit(height, "cm"),
+#                 column_title = title,column_title_gp = gpar(fontsize = font.size.title),column_names_rot = 90,
+#                 heatmap_legend_param = list(title_gp = gpar(fontsize = 8, fontface = "plain"),title_position = "leftcenter-rot",
+#                                             border = NA, at = legend.break,
+#                                             legend_height = unit(20, "mm"),labels_gp = gpar(fontsize = 8),grid_width = unit(2, "mm"))
+#   )
+#   #  draw(ht1)
+#   return(ht1)
+# }
+# }
+
+
+for (group in seq_along(signalling_groups)) {
+  group_name <- names(signalling_groups)[group]
+  group_signals <- signalling_groups[[group]]
+  
+  ht1 <- reordered_netAnalysis_signalingRole_heatmap(cellchat,
+                                           pattern = "outgoing",
+                                           height = 8,
+                                           width = 13,
+                                           signaling = group_signals,cluster.cols = T)
+  
+  ht2 <- reordered_netAnalysis_signalingRole_heatmap(cellchat,
+                                           pattern = "incoming",
+                                           height = 8,
+                                           width = 12,
+                                           signaling = group_signals, cluster.cols = T)
+
+  png(file.path(plot_dir, paste0("incoming_and_outgoing_signalingRole_heatmap_", group_name, ".png")),
+      width = 14, height = 5, units = "in", res = 300)
+  
+  print(ht1 + ht2) 
+  dev.off()
+}
+
+ht1 <- reordered_netAnalysis_signalingRole_heatmap(cellchat,
+                                                   pattern = "outgoing",
+                                                   height = 13,
+                                                   width = 12)
+
+ht2 <- reordered_netAnalysis_signalingRole_heatmap(cellchat,
+                                                   pattern = "incoming",
+                                                   height = 13,
+                                                   width = 12)
+
+png(file.path(plot_dir, "incoming_and_outgoing_signalingRole_heatmap_allPathways.png"),
+    width = 13, height = 7, units = "in", res = 300)
+
+print(ht1 + ht2) 
 dev.off()
 
 ## pattern analysis
@@ -623,7 +874,7 @@ receptors <- c(
 )
 
 # Pathways of interest
-pathways_of_interest <- c("COLLAGEN", "FN1", "LAMININ", "SPP1")
+pathways_of_interest <- c("LAMININ", "COLLAGEN", "FN1", "SPP1")
 
 # 2. Subset communication dataframe from CellChat
 comm_df <- subsetCommunication(cellchat) 
@@ -654,48 +905,79 @@ print(p)
 dev.off()
 
 
-# Filter and prepare the data
-dot_data <- comm_df %>%
-  filter(pathway_name %in% pathways_of_interest) %>%
-  filter(receptor %in% receptors) %>%
-  mutate(
-    safe_pval = pmax(pval, 1e-300)  # Prevent division by zero
-  ) %>%
-  group_by(pathway_name, interaction_name_2) %>%
-  summarise(
-    mean_prob = mean(prob, na.rm = TRUE),
-    mean_pval = mean(safe_pval, na.rm = TRUE),
-    .groups = "drop"
-  )
+# # Filter and prepare the data
+# dot_data <- comm_df %>%
+#   filter(pathway_name %in% pathways_of_interest) %>%
+#   filter(receptor %in% receptors) %>%
+#   mutate(
+#     safe_pval = pmax(pval, 1e-300)  # Prevent division by zero
+#   ) %>%
+#   group_by(pathway_name, interaction_name_2) %>%
+#   summarise(
+#     mean_prob = mean(prob, na.rm = TRUE),
+#     mean_pval = mean(safe_pval, na.rm = TRUE),
+#     .groups = "drop"
+#   )
 
-# Ensure factors are ordered
-dot_data$pathway_name <- factor(dot_data$pathway_name, levels = pathways_of_interest)
-dot_data$interaction_name_2 <- factor(dot_data$interaction_name_2, levels = rev(unique(dot_data$interaction_name_2)))
+# # Ensure factors are ordered
+# dot_data$pathway_name <- factor(dot_data$pathway_name, levels = pathways_of_interest)
+# dot_data$interaction_name_2 <- factor(dot_data$interaction_name_2, levels = rev(unique(dot_data$interaction_name_2)))
+# 
+# # Plot
 
-# Plot
+# png(file.path(plot_dir, "Dotplot_L-R_pairs_SPP1_laminin_col_fn1.png"),
+#     width = 4, height  = 16, units = "in", res = 300)
+# p <- ggplot(dot_data, aes(x = pathway_name, y = interaction_name_2)) +
+#   geom_point(aes(size = 1 / mean_pval, color = mean_prob)) +
+#   viridis::scale_color_viridis(option = "viridis", name = "Comm. Prob") +
+#   scale_size_continuous(
+#     name = "p-value",
+#     breaks = 1 / c(1e-2, 1e-5, 1e-10, 1e-50, 1e-100),
+#     labels = c("1e-2", "1e-5", "1e-10", "1e-50", "1e-100"),
+#     range = c(2, 6)
+#   ) +
+#   theme_minimal(base_size = 12) +
+#   theme(
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     axis.title = element_blank(),
+#     legend.position = "right",
+#     panel.grid = element_blank()
+#   ) +
+#   ggtitle("L-R Pairs: Collagen,\nFN1, Laminin, SPP1")
+# print(p)
+# dev.off()
 
-png(file.path(plot_dir, "Dotplot_L-R_pairs_SPP1_laminin_col_fn1.png"),
-    width = 4, height  = 16, units = "in", res = 300)
-p <- ggplot(dot_data, aes(x = pathway_name, y = interaction_name_2)) +
-  geom_point(aes(size = 1 / mean_pval, color = mean_prob)) +
-  viridis::scale_color_viridis(option = "viridis", name = "Comm. Prob") +
-  scale_size_continuous(
-    name = "p-value",
-    breaks = 1 / c(1e-2, 1e-5, 1e-10, 1e-50, 1e-100),
-    labels = c("1e-2", "1e-5", "1e-10", "1e-50", "1e-100"),
-    range = c(2, 6)
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.title = element_blank(),
-    legend.position = "right",
-    panel.grid = element_blank()
-  ) +
-  ggtitle("L-R Pairs: Collagen,\nFN1, Laminin, SPP1")
+receptor_counts <- comm_subset %>%
+  group_by(pathway_name, receptor) %>%
+  summarise(lr_count = n_distinct(interaction_name_2), .groups = "drop")
+
+all_combinations <- expand.grid(
+  receptor = unique(comm_subset$receptor),
+  pathway_name = pathways_of_interest
+)
+
+receptor_counts_complete <- all_combinations %>%
+  left_join(receptor_counts, by = c("receptor", "pathway_name")) %>%
+  mutate(lr_count = ifelse(is.na(lr_count), 0, lr_count))
+
+receptor_counts_complete$receptor <- stringr::str_replace_all(receptor_counts_complete$receptor ,"_","/")
+receptor_counts_complete$pathway_name <- factor(receptor_counts_complete$pathway_name, levels = c("LAMININ", "COLLAGEN", "FN1", "SPP1"))
+
+png(file.path(plot_dir, "Heatmap_freq_Common_Sig_receptors_SPP1_laminin_col_fn1.png"),
+    width = 8, height  = 8, units = "in", res = 600)
+
+p<- ggplot(receptor_counts_complete, aes(x = pathway_name, y = receptor, fill = lr_count)) +
+    geom_tile(color = "white") +
+    scale_fill_viridis_c(option = "viridis", direction = -1) +  theme_minimal(base_size = 12) +
+    labs(title = "Frequency of L-R Pairs per Receptor common to each Pathway",
+         x = "Pathway", y = "Receptor", fill = "L-R pair count") +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid = element_blank()
+    )
 print(p)
 dev.off()
-
 
 # Create binary matrix
 binary_matrix <- sapply(pathways_of_interest, function(pw) {
@@ -705,6 +987,9 @@ binary_matrix <- sapply(pathways_of_interest, function(pw) {
   
   as.integer(receptors %in% lr_in_pathway)
 })
+
+## set order
+colnames(binary_matrix) <- factor(colnames(binary_matrix), levels = c("LAMININ", "COLLAGEN", "FN1", "SPP1"))
 
 
 # Set rownames for clarity
