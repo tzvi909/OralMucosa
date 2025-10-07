@@ -968,7 +968,8 @@ png(file.path(plot_dir, "Heatmap_freq_Common_Sig_receptors_SPP1_laminin_col_fn1.
 
 p<- ggplot(receptor_counts_complete, aes(x = pathway_name, y = receptor, fill = lr_count)) +
     geom_tile(color = "white") +
-    scale_fill_viridis_c(option = "viridis", direction = -1) +  theme_minimal(base_size = 12) +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_minimal(base_size = 12) +
     labs(title = "Frequency of L-R Pairs per Receptor common to each Pathway",
          x = "Pathway", y = "Receptor", fill = "L-R pair count") +
     theme(
