@@ -790,25 +790,14 @@ if (all(VU40T.combined$species == "Human")){
     FeaturePlot(VU40T.combined, features=c("DDR1", "RHOA")) & scale_color_viridis()
     
     pemt_genes <- c(
-      
       "VIM","FN1","ITGA5","ITGB1","SERPINE1","LAMC2","LAMB3","PDPN",
-      
       "MMP14","MMP1","MMP10","TGFBI","PLAUR","FSCN1","COL7A1",
-      
       "CXCL8","CXCL1","SNAI2","ZEB1","KRT14","ITGA6"
-      
     )
-    
-    
-    
     rho_acto_genes <- c(
-      
       "RHOA","RHOC","ROCK1","ROCK2","MYL9","MYH9","MYH10","ACTN1",
-      
       "TAGLN","DIAPH1","DIAPH3","LIMK1","LIMK2","CFL1","PFN1",
-      
       "PPP1R12A","MYLK","DAAM1","ARHGEF11","ARHGEF12"
-      
     )
     modules = list(pemt_genes, rho_acto_genes)
     names(modules) <- c("pemt_genes", "rho_acto_genes")
@@ -818,12 +807,78 @@ if (all(VU40T.combined$species == "Human")){
       seu <- AddModuleScore(seu, features = list(modules[[nm]]), name = nm, nbin = 24, ctrl = 100)
       
     }
+    png(file.path(plots_dir, "rho_acto_pemt_module_umap.png"), 
+        width = 12, height = 8, units = "in", res = 300)
     
-    FeaturePlot(seu, features = c("pemt_genes1","rho_acto_genes1"),
-                
-                order = TRUE, cols = c("grey90","red"))
-    VlnPlot(seu, features = c("pemt_genes1","rho_acto_genes1"))
+    
+    p <- FeaturePlot(seu, features = c("pemt_genes1","rho_acto_genes1"),
+                     order = TRUE, cols = viridisLite::viridis(n = 5))
+    print(p)
+    dev.off()
+    
+    png(file.path(plots_dir, "rho_acto_pemt_module_violin.png"), 
+        width = 12, height = 8, units = "in", res = 300)
+    
+    p <- VlnPlot(seu, features = c("pemt_genes1","rho_acto_genes1"))
+    print(p)
+    dev.off()
   }
+  table(VU40T.combined$seurat_clusters)
+  
+  clust6 <- subset(seu, idents = 6)
+  clust6$pemt_genes1
+  clust6$rho_acto_genes1
+  
+  # Create dataframe
+  clust6_df <- data.frame(
+    cell_barcodes = names(clust6$pemt_genes1),
+    pemt_genes = clust6$pemt_genes1,
+    rho_acto_genes = clust6$rho_acto_genes1
+  )
+  
+  # Define color and alpha rules
+  clust6_df <- clust6_df %>%
+    mutate(
+      label_color = case_when(
+        pemt_genes > 0.8 ~ "red",
+        rho_acto_genes > 0.6 ~ "blue",
+        TRUE ~ "grey70"
+      ),
+      alpha_val = case_when(
+        pemt_genes > 0.8 ~ 1,
+        rho_acto_genes > 0.6 ~ 1,
+        TRUE ~ 0.2
+      )
+    )
+  
+  # Pivot to long format for plotting
+  clust6_long <- clust6_df %>%
+    tidyr::pivot_longer(
+      cols = c(pemt_genes, rho_acto_genes),
+      names_to = "module",
+      values_to = "expression"
+    )
+  
+  
+  # Plot
+  png(file.path(plots_dir, "cluster6_rho_acto_pemt_module_scatter_plot.png"), 
+      width = 12, height = 8, units = "in", res = 300)
+  
+  p <- ggplot(clust6_long, aes(x = cell_barcodes, y = expression, color = module, alpha = alpha_val)) +
+    geom_point() +
+    scale_alpha_identity() +
+    guides(alpha = "none") +
+    labs(x = "Cell barcodes", y = "Expression", color = "Module") +
+    scale_x_discrete(
+      labels = setNames(
+        paste0("<span style='color:", clust6_df$label_color, "'>", clust6_df$cell_barcodes, "</span>"),
+        clust6_df$cell_barcodes
+      )
+    ) + theme_minimal() +
+    theme(axis.text.x = ggtext::element_markdown(angle = 90, hjust = 1))
+  
+  print(p)
+  dev.off()
 }
 ## genelist 3 -> mouse and human epithelial, fibroblast and EMT markers
 genelist <- as.data.frame(read.csv("~/Markers_for_dotplots_2_ep_2nd_set.csv", header = T, skip = 1))
