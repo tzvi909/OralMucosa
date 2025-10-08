@@ -481,6 +481,16 @@ markers <- FindAllMarkers(VU40T.combined,
 sig_markers_0.3 <- markers[markers$p_val_adj <= 0.05, ]
 
 
+markers_all <- FindAllMarkers(VU40T.combined,
+                              only.pos = TRUE,
+                              min.pct = 0,
+                              logfc.threshold = 0.25,
+                              test.use = "roc")
+
+AggregateExpression(VU40T.combined)$RNA[, c("0","2","5","6")]
+
+
+write.csv(markers_all, file = file.path(res_dir, "humanEpiMarkers_roc_res0.3.csv"))
 # 
 # markers <- FindAllMarkers(VU40T.combined,
 #                           only.pos = F,
