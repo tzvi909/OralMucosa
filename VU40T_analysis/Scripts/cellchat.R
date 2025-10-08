@@ -974,7 +974,8 @@ p<- ggplot(receptor_counts_complete, aes(x = pathway_name, y = receptor, fill = 
          x = "Pathway", y = "Receptor", fill = "L-R pair count") +
     theme(
       plot.title = element_text(hjust = 0.5),
-      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+      axis.text.y = element_text(size = 12),
       panel.grid = element_blank()
     )
 print(p)
