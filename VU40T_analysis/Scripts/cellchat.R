@@ -964,7 +964,7 @@ receptor_counts_complete$receptor <- stringr::str_replace_all(receptor_counts_co
 receptor_counts_complete$pathway_name <- factor(receptor_counts_complete$pathway_name, levels = c("LAMININ", "COLLAGEN", "FN1", "SPP1"))
 
 png(file.path(plot_dir, "Heatmap_freq_Common_Sig_receptors_SPP1_laminin_col_fn1.png"),
-    width = 8, height  = 8, units = "in", res = 600)
+    width = 9, height  = 8, units = "in", res = 600)
 
 p<- ggplot(receptor_counts_complete, aes(x = pathway_name, y = receptor, fill = lr_count)) +
     geom_tile(color = "white") +
@@ -974,8 +974,8 @@ p<- ggplot(receptor_counts_complete, aes(x = pathway_name, y = receptor, fill = 
          x = "Pathway", y = "Receptor", fill = "L-R pair count") +
     theme(
       plot.title = element_text(hjust = 0.5),
-      axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
-      axis.text.y = element_text(size = 12),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+      axis.text.y = element_text(size = 14),
       panel.grid = element_blank()
     )
 print(p)
