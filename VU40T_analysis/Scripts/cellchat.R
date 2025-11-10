@@ -638,7 +638,9 @@ signalling_groups <- list(
   Group2 = c("ncWNT", "EGF", "NRG", "MIF"),
   Group3 = c("FGF", "PDGF", "VEGF", "ANGPTL", "CypA"),
   Group4 = c("NOTCH", "ADGRL", "THBS", "SLITRK", "MK", "TENASCIN"),
-  Group5 = c("TRAIL", "EPHA", "EPHB", "APP", "SLIT", "VISFATIN")
+  Group5 = c("TRAIL", "EPHA", "EPHB", "APP", "SLIT", "VISFATIN"),
+  Group6 = c("APP", "SLIT", "EPHB", "TRAIL", "VISFATIN", "CLDN", "IGFBP", "EPHA"), # for supplementary fig for epi cluster 3 signalling
+  Group7 = c("JAM", "PLAU") # for supplementary fig for epi cluster 4 signalling
 )
 
 ## extract data from cellchat object used for 
@@ -741,16 +743,20 @@ for (pattern in patterns){
 for (group in seq_along(signalling_groups)) {
   group_name <- names(signalling_groups)[group]
   group_signals <- signalling_groups[[group]]
-  
+  if (group_name != "Group7") {
+    height <- 8
+  } else {
+    height <- 3
+  }
   ht1 <- reordered_netAnalysis_signalingRole_heatmap(cellchat,
                                            pattern = "outgoing",
-                                           height = 8,
+                                           height = height,
                                            width = 13,
                                            signaling = group_signals,cluster.cols = T)
   
   ht2 <- reordered_netAnalysis_signalingRole_heatmap(cellchat,
                                            pattern = "incoming",
-                                           height = 8,
+                                           height = height,
                                            width = 12,
                                            signaling = group_signals, cluster.cols = T)
 

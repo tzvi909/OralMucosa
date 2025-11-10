@@ -5,7 +5,6 @@ library(Seurat)
 library(SingleCellExperiment)
 library(dplyr)
 library(patchwork)
-library(SingleCellExperiment)
 library(clustree)
 library(biomaRt)
 library(msigdbr)
@@ -791,7 +790,7 @@ if (all(VU40T.combined$species == "Human")){
     p_stack <- wrap_plots(p, ncol = 2, nrow = 5,  guides = "collect")
     
     print(p_stack)
-    dev.off
+    dev.off()
     
     ### new human dotplots -> HNSCC and EMT
     genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_3.xlsx"), sheet = 11, skip = 1)
@@ -799,96 +798,133 @@ if (all(VU40T.combined$species == "Human")){
     
     FeaturePlot(VU40T.combined, features=c("DDR1", "RHOA")) & scale_color_viridis()
     
-    pemt_genes <- c(
-      "VIM","FN1","ITGA5","ITGB1","SERPINE1","LAMC2","LAMB3","PDPN",
-      "MMP14","MMP1","MMP10","TGFBI","PLAUR","FSCN1","COL7A1",
-      "CXCL8","CXCL1","SNAI2","ZEB1","KRT14","ITGA6"
-    )
-    rho_acto_genes <- c(
-      "RHOA","RHOC","ROCK1","ROCK2","MYL9","MYH9","MYH10","ACTN1",
-      "TAGLN","DIAPH1","DIAPH3","LIMK1","LIMK2","CFL1","PFN1",
-      "PPP1R12A","MYLK","DAAM1","ARHGEF11","ARHGEF12"
-    )
-    modules = list(pemt_genes, rho_acto_genes)
-    names(modules) <- c("pemt_genes", "rho_acto_genes")
-    seu <- VU40T.combined
-    for (nm in names(modules)) {
-      
-      seu <- AddModuleScore(seu, features = list(modules[[nm]]), name = nm, nbin = 24, ctrl = 100)
-      
+    ## Fig 4 Vlnplots
+    
+    vlngenes <- c("EGFR", "EREG", "AREG", "HBEGF")
+    
+    png(file = file.path(
+      plots_dir,
+      "ViolinPlot_CancerResistanceMarkers_fig4_clusterResolution0.3_VU40T_combined.png"),
+      width = 4, height = 5, units = "in", res = 300)
+    p <- VlnPlot(
+      VU40T.combined,
+      features = vlngenes,
+      alpha = 1, pt.size = 0,
+      combine = FALSE
+    ) 
+
+    
+    # remove legends + tighten margins
+    p <- lapply(p, function(pp) {
+      pp + theme(
+        legend.position = "none",
+        plot.margin = margin(2, 0.5, 2, 1),
+        plot.title = element_text(size = 10, angle = 0, hjust = 0.5),
+        axis.text.x = element_text(size = 8, angle = 0, hjust = 0.5),
+        axis.text.y = element_text(size = 8, angle = 0, vjust = 0.5),
+      )
+    })
+    
+    for (i in seq_along(p)){
+      p[[i]][["labels"]][["x"]] <- ""
+      p[[i]][["labels"]][["y"]] <- ""
     }
-    png(file.path(plots_dir, "rho_acto_pemt_module_umap.png"), 
-        width = 12, height = 8, units = "in", res = 300)
     
+    p_stack <- wrap_plots(p, ncol = 2, nrow = 2,  guides = "collect")
     
-    p <- FeaturePlot(seu, features = c("pemt_genes1","rho_acto_genes1"),
-                     order = TRUE, cols = viridisLite::viridis(n = 5))
-    print(p)
+    print(p_stack)
     dev.off()
     
-    png(file.path(plots_dir, "rho_acto_pemt_module_violin.png"), 
-        width = 12, height = 8, units = "in", res = 300)
-    
-    p <- VlnPlot(seu, features = c("pemt_genes1","rho_acto_genes1"))
-    print(p)
-    dev.off()
-  }
-  table(VU40T.combined$seurat_clusters)
-  
-  clust6 <- subset(seu, idents = 6)
-  clust6$pemt_genes1
-  clust6$rho_acto_genes1
-  
-  # Create dataframe
-  clust6_df <- data.frame(
-    cell_barcodes = names(clust6$pemt_genes1),
-    pemt_genes = clust6$pemt_genes1,
-    rho_acto_genes = clust6$rho_acto_genes1
-  )
-  
-  # Define color and alpha rules
-  clust6_df <- clust6_df %>%
-    mutate(
-      label_color = case_when(
-        pemt_genes > 0.8 ~ "red",
-        rho_acto_genes > 0.6 ~ "blue",
-        TRUE ~ "grey70"
-      ),
-      alpha_val = case_when(
-        pemt_genes > 0.8 ~ 1,
-        rho_acto_genes > 0.6 ~ 1,
-        TRUE ~ 0.2
-      )
-    )
-  
-  # Pivot to long format for plotting
-  clust6_long <- clust6_df %>%
-    tidyr::pivot_longer(
-      cols = c(pemt_genes, rho_acto_genes),
-      names_to = "module",
-      values_to = "expression"
-    )
-  
-  
-  # Plot
-  png(file.path(plots_dir, "cluster6_rho_acto_pemt_module_scatter_plot.png"), 
-      width = 12, height = 8, units = "in", res = 300)
-  
-  p <- ggplot(clust6_long, aes(x = cell_barcodes, y = expression, color = module, alpha = alpha_val)) +
-    geom_point() +
-    scale_alpha_identity() +
-    guides(alpha = "none") +
-    labs(x = "Cell barcodes", y = "Expression", color = "Module") +
-    scale_x_discrete(
-      labels = setNames(
-        paste0("<span style='color:", clust6_df$label_color, "'>", clust6_df$cell_barcodes, "</span>"),
-        clust6_df$cell_barcodes
-      )
-    ) + theme_minimal() +
-    theme(axis.text.x = ggtext::element_markdown(angle = 90, hjust = 1))
-  
-  print(p)
-  dev.off()
+  #   pemt_genes <- c(
+  #     "VIM","FN1","ITGA5","ITGB1","SERPINE1","LAMC2","LAMB3","PDPN",
+  #     "MMP14","MMP1","MMP10","TGFBI","PLAUR","FSCN1","COL7A1",
+  #     "CXCL8","CXCL1","SNAI2","ZEB1","KRT14","ITGA6"
+  #   )
+  #   rho_acto_genes <- c(
+  #     "RHOA","RHOC","ROCK1","ROCK2","MYL9","MYH9","MYH10","ACTN1",
+  #     "TAGLN","DIAPH1","DIAPH3","LIMK1","LIMK2","CFL1","PFN1",
+  #     "PPP1R12A","MYLK","DAAM1","ARHGEF11","ARHGEF12"
+  #   )
+  #   modules = list(pemt_genes, rho_acto_genes)
+  #   names(modules) <- c("pemt_genes", "rho_acto_genes")
+  #   seu <- VU40T.combined
+  #   for (nm in names(modules)) {
+  #     
+  #     seu <- AddModuleScore(seu, features = list(modules[[nm]]), name = nm, nbin = 24, ctrl = 100)
+  #     
+  #   }
+  #   png(file.path(plots_dir, "rho_acto_pemt_module_umap.png"), 
+  #       width = 12, height = 8, units = "in", res = 300)
+  #   
+  #   
+  #   p <- FeaturePlot(seu, features = c("pemt_genes1","rho_acto_genes1"),
+  #                    order = TRUE, cols = viridisLite::viridis(n = 5))
+  #   print(p)
+  #   dev.off()
+  #   
+  #   png(file.path(plots_dir, "rho_acto_pemt_module_violin.png"), 
+  #       width = 12, height = 8, units = "in", res = 300)
+  #   
+  #   p <- VlnPlot(seu, features = c("pemt_genes1","rho_acto_genes1"))
+  #   print(p)
+  #   dev.off()
+  # }
+  # table(VU40T.combined$seurat_clusters)
+  # 
+  # clust6 <- subset(seu, idents = 6)
+  # clust6$pemt_genes1
+  # clust6$rho_acto_genes1
+  # 
+  # # Create dataframe
+  # clust6_df <- data.frame(
+  #   cell_barcodes = names(clust6$pemt_genes1),
+  #   pemt_genes = clust6$pemt_genes1,
+  #   rho_acto_genes = clust6$rho_acto_genes1
+  # )
+  # 
+  # # Define color and alpha rules
+  # clust6_df <- clust6_df %>%
+  #   mutate(
+  #     label_color = case_when(
+  #       pemt_genes > 0.8 ~ "red",
+  #       rho_acto_genes > 0.6 ~ "blue",
+  #       TRUE ~ "grey70"
+  #     ),
+  #     alpha_val = case_when(
+  #       pemt_genes > 0.8 ~ 1,
+  #       rho_acto_genes > 0.6 ~ 1,
+  #       TRUE ~ 0.2
+  #     )
+  #   )
+  # 
+  # # Pivot to long format for plotting
+  # clust6_long <- clust6_df %>%
+  #   tidyr::pivot_longer(
+  #     cols = c(pemt_genes, rho_acto_genes),
+  #     names_to = "module",
+  #     values_to = "expression"
+  #   )
+  # 
+  # 
+  # # Plot
+  # png(file.path(plots_dir, "cluster6_rho_acto_pemt_module_scatter_plot.png"), 
+  #     width = 12, height = 8, units = "in", res = 300)
+  # 
+  # p <- ggplot(clust6_long, aes(x = cell_barcodes, y = expression, color = module, alpha = alpha_val)) +
+  #   geom_point() +
+  #   scale_alpha_identity() +
+  #   guides(alpha = "none") +
+  #   labs(x = "Cell barcodes", y = "Expression", color = "Module") +
+  #   scale_x_discrete(
+  #     labels = setNames(
+  #       paste0("<span style='color:", clust6_df$label_color, "'>", clust6_df$cell_barcodes, "</span>"),
+  #       clust6_df$cell_barcodes
+  #     )
+  #   ) + theme_minimal() +
+  #   theme(axis.text.x = ggtext::element_markdown(angle = 90, hjust = 1))
+  # 
+  # print(p)
+  # dev.off()
 }
 ## genelist 3 -> mouse and human epithelial, fibroblast and EMT markers
 genelist <- as.data.frame(read.csv("~/Markers_for_dotplots_2_ep_2nd_set.csv", header = T, skip = 1))
@@ -2139,3 +2175,325 @@ if (all(VU40T.combined$species == "Human")){
               file.path(out,'human_epi_counts.csv'), 
               sep = ',', row.names = T, col.names = T, quote = F)
 }
+
+
+#### epithelial cluster 6 inspection
+
+DimPlot(VU40T.combined, label = T)
+
+
+### look at QC fail
+
+if (species == "human"){
+  mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mtx_conversions")
+} else {
+  mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts_Mouse/cellranger/mtx_conversions")
+}
+
+Samples <- list.files(path = mtx_dir, 
+                      pattern = "^P",
+                      recursive = F
+) 
+
+
+
+##check we only have 4 samples
+## get only cellbender seurat_obj paths
+seurat_objs <- list.files(path = mtx_dir, 
+                          pattern = "^P.*cellbender.*.seurat.rds$",
+                          full.names = T,
+                          recursive = T
+)
+
+
+
+SeuratList <- list()
+for(i in seurat_objs){
+  SeuratList[[i]] <- LoadSeuratRds(i)
+  Idents(SeuratList[[i]]) <- SeuratList[[i]]$sample
+}
+
+
+# Replace SeuratList names with simplified format like P18_LPS-N, P22_LPS-P, etc.
+names(SeuratList) <- gsub("^.*/(P[0-9]+)_LPS-([NP]).*$", "\\1_LPS-\\2", names(SeuratList))
+
+## Mito genes were isolated from hg38 GTF (chrM)
+
+has_mito_prefix <- any(sapply(SeuratList, function(obj) {
+  any(grepl("^MT-", rownames(obj[["RNA"]]))) |
+    any(grepl("^mt-", rownames(obj[["RNA"]])))
+}))
+
+if (!has_mito_prefix) {
+  mito_path <- "/rds/projects/g/gendood-3dmucosa/BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mkref/cellranger_reference/genes/MTgenes.txt"
+  
+  if (file.exists(mito_path)) {
+    mito_genes <- read.delim(mito_path, sep = "\t", header = FALSE)
+    mito_genes <- c(t(mito_genes))
+  } else {
+    stop("❌ Mitochondrial gene list not found at: ", mito_path)
+  }
+}
+
+
+## thresholds worked out from doing histogram of log-transformed count data
+thresholds_df <- data.frame(
+  sample = c("P18_LPS-N", "P18_LPS-P", "P22_LPS-N", "P22_LPS-P"),
+  cutoff = c(300, 350, 300, 300)
+)
+
+seurat_filtered_list <- list() 
+all_qc_metadata <- list()
+for (sample in seq_along(SeuratList)) {
+  seurat_obj <- SeuratList[[sample]]
+  sce <- as.SingleCellExperiment(seurat_obj,assay = "RNA")
+  sample_id <- unique(seurat_obj$sample)
+  
+  # Detect mitochondrial genes
+  if (! has_mito_prefix) {
+    mito_flag <- rownames(sce) %in% mito_genes
+  } else if (any(grepl("^MT-", rownames(seurat_obj[["RNA"]]))) &
+             !any(grepl("^mt-", rownames(seurat_obj[["RNA"]])))
+  ) {
+    mito_genes_detected <- rownames(seurat_obj[["RNA"]])[grepl("^MT[-]?", rownames(seurat_obj[["RNA"]]))]
+    mito_flag <- rownames(sce) %in% mito_genes_detected
+  } else {
+    mito_genes_detected <- rownames(seurat_obj[["RNA"]])[grepl("^mt[-]?", rownames(seurat_obj[["RNA"]]))]
+    mito_flag <- rownames(sce) %in% mito_genes_detected
+  }
+  
+  # Calculate QC metrics
+  qc_metrics <- scuttle::perCellQCMetrics(sce, subsets = list(Mt = mito_flag))
+  
+  # Apply QC thresholds
+  qc_metrics$low_lib <- isOutlier(qc_metrics$sum, log = TRUE, type = "lower", nmads = 5)
+  qc_metrics$low_feats <- isOutlier(qc_metrics$detected, log = TRUE, type = "lower", nmads = 5) |
+    qc_metrics$sum < thresholds_df$cutoff[thresholds_df$sample == sample_id]
+  qc_metrics$high_mito <- qc_metrics$subsets_Mt_percent > 20
+  qc_metrics$qc_pass <- !(qc_metrics$low_feats | qc_metrics$high_mito)
+  
+  # Add metadata
+  qc_metrics <- as.data.frame(qc_metrics)
+  qc_metrics <- qc_metrics[colnames(seurat_obj), , drop = FALSE]
+  seurat_obj <- AddMetaData(seurat_obj, metadata = qc_metrics)
+  seurat_obj$qc_status <- ifelse(seurat_obj$qc_pass, "Pass", "Fail")
+  
+  # Subset Seurat object
+  meta_pass <- seurat_obj@meta.data %>% filter(qc_pass)
+  ### let's get qc fail this time
+  seurat_filtered <- subset(seurat_obj, cells = setdiff(colnames(seurat_obj), rownames(meta_pass)))
+  seurat_filtered_list[[sample]] <- seurat_filtered
+  
+  # Store for combined plots
+  qc_metrics$sample_id <- sample_id
+  qc_metrics$nFeature_RNA <- seurat_obj$nFeature_RNA[rownames(qc_metrics)]
+  qc_metrics$percent_mt <- qc_metrics$subsets_Mt_percent
+  qc_metrics$qc_status <- seurat_obj$qc_status[rownames(qc_metrics)]
+  all_qc_metadata[[sample]] <- qc_metrics
+  
+  # Print summary
+  message("\nQC summary for ", sample_id, "\n")
+  print(qc_metrics %>% summarise(
+    total_cells = n(),
+    kept = sum(qc_pass),
+    percent_kept = mean(qc_pass) * 100,
+    low_feats = sum(low_feats),
+    high_mito = sum(high_mito),
+    low_lib = sum(low_lib)
+  ))
+}
+
+## reassign sample name to slices of seurat obj list:
+names(seurat_filtered_list) <- names(SeuratList)
+
+
+# Combine all metadata
+qc_df <- do.call(rbind, all_qc_metadata)
+
+# Plot combined histogram: nFeature_RNA
+p1 <- ggplot(qc_df, aes(x = detected, fill = qc_pass)) +
+  geom_histogram(alpha = 0.5, bins = 100, position = "identity") +
+  scale_x_log10() +
+  theme_minimal() +
+  facet_wrap(~sample_id, scales = "free_y") +
+  labs(title = "nFeature_RNA: Pass vs Fail by Sample",
+       x = "log10(Number of detected genes)", y = "Cell count")
+print(p1)
+
+## now let's look at these qc fail cells
+qc_fail_cell_counts_df <- data.frame(
+  sample = names(SeuratList),
+  n_cells = sapply(SeuratList, ncol)
+)
+
+for (sample in names(SeuratList)) {
+  
+  # Get the Seurat object for the current sample
+  seurat_obj <- SeuratList[[sample]]
+  
+  # Filter species_df for this sample
+  df_sample <- subset(species_df, sample == sample)
+  
+  # Make sure barcodes match
+  df_sample <- df_sample[!duplicated(df_sample$barcode), ]
+  rownames(df_sample) <- df_sample$barcode
+  
+  # Match the species to the Seurat object's barcodes
+  matched_species <- df_sample[colnames(seurat_obj), "species_label"]
+  
+  # Add to metadata
+  seurat_obj$species <- matched_species
+  
+  # Store back in list
+  SeuratList[[sample]] <- seurat_obj
+}
+
+for (i in seq_along(SeuratList)) {
+  
+  seurat_obj <- SeuratList[[i]]
+  
+  # Keep only cells from dominant species
+  cells_to_keep <- colnames(seurat_obj)[seurat_obj$species == "Human"]
+  
+  # Subset Seurat object
+  seurat_obj <- subset(seurat_obj, cells = cells_to_keep)
+  
+  # Store it back
+  SeuratList[[i]] <- seurat_obj
+}
+
+humanOnly_qc_fail_cell_counts_df <- data.frame(
+  sample = names(SeuratList),
+  n_cells = sapply(SeuratList, ncol)
+)
+qc_fail_cell_counts_df
+humanOnly_qc_fail_cell_counts_df
+
+qcFailed_list <- SeuratList
+## now merge them all into 1 object
+
+# Ensure the list is named (this is crucial!)
+if (is.null(names(qcFailed_list)) || any(names(qcFailed_list) == "")) {
+  names(qcFailed_list) <- paste0("S", seq_along(qcFailed_list))  # or your real sample IDs
+}
+
+# (A) Set sample metadata and prefix cell barcodes BEFORE merging
+for (nm in names(qcFailed_list)) {
+  qcFailed_list[[nm]]$sample <- nm
+  qcFailed_list[[nm]] <- RenameCells(
+    qcFailed_list[[nm]],
+    new.names = paste0(nm, "_", Cells(qcFailed_list[[nm]]))  # forces prefix
+  )
+}
+
+# (B) Merge all at once (preferred pattern in Seurat)
+qry_fail <- merge(
+  x  = qcFailed_list[[1]],
+  y  = qcFailed_list[2:length(qcFailed_list)],
+  add.cell.ids = names(qcFailed_list)  # harmless here since we've already prefixed
+)
+
+qry_fail$qc_status <- "QC_fail"
+Idents(qry_fail) <- "QC_fail"
+
+# sanity check
+head(colnames(qry_fail))         # should look like "S1_ATGCCAGCAACGTTCC-1"
+table(qry_fail$sample)
+
+## just to make sure
+DefaultAssay(VU40T.combined) <- "RNA"
+
+DefaultAssay(qry_fail) <- "RNA"
+qry_fail <- NormalizeData(qry_fail, verbose = FALSE)
+qry_fail <- FindVariableFeatures(qry_fail, verbose = FALSE)
+
+npcs_ref <- ncol(Embeddings(VU40T.combined, "pca"))
+dims_use <- 1:10  # e.g., 1:10
+
+## store model for ref
+VU40T.combined <- RunUMAP(
+  VU40T.combined,
+  reduction = "pca",
+  dims = 1:10,
+  return.model = TRUE        # <-- critical
+  # umap.method = "uwot"     # default is fine; model is saved with uwot too
+  # metric = "cosine"
+)
+
+VU40T.combined <- RunUMAP(
+  VU40T.combined,
+  reduction = "pca",
+  dims = 1:10,         # same number of PCs you used before!
+  return.model = TRUE  # <--- this is critical
+)
+
+# 2) Find anchors and map QC-fails onto ref UMAP
+anchors <- FindTransferAnchors(
+  reference = VU40T.combined,
+  query = qry_fail,
+  dims = 1:10,
+  normalization.method = "LogNormalize",
+  reference.reduction = "pca"
+)
+
+qry_fail <- MapQuery(
+  anchorset = anchors,
+  query = qry_fail,
+  reference = VU40T.combined,
+  refdata = list(ref_cluster = Idents(VU40T.combined)),   # optional: predicted cluster labels
+  reference.reduction = "pca",
+  reduction.model = "umap"                      # project into ref’s UMAP space
+)
+
+# ensure qry_fail has PCA first
+qry_fail <- RunPCA(qry_fail, npcs = 1:10)
+
+qry_fail <- ProjectUMAP(
+  object      = qry_fail,
+  umap.model  = ref[["umap"]]@misc$model,
+  reduction   = "pca"            # use the PCA you just computed
+)
+
+
+qry_fail$qc_status <- "QC_fail"
+
+
+merged <- merge(VU40T.combined, qry_fail)
+
+# highlight vector
+fail_cells <- Cells(merged)[merged$qc_status == "QC_fail"]
+
+# clusters as colors + black overlay for QC-fails
+DimPlot(
+  merged, reduction = "umap",
+  group.by = "seurat_clusters",
+  label = TRUE, repel = TRUE, shuffle = TRUE
+) + DimPlot(
+  merged, reduction = "umap",
+  cells = fail_cells,
+  cols = "black", pt.size = 1.6
+)
+
+# Keep ref clusters for pass cells; give fail cells their own Ident
+Idents(merged) <- ifelse(merged$qc_status == "QC_fail",
+                         "QC_fail",
+                         as.character(Idents(merged)))
+
+# Plots
+DimPlot(merged, reduction = "umap", group.by = "qc_status")
+DimPlot(merged, reduction = "umap", label = TRUE, repel = TRUE)
+
+# Optional: per-sample view (if you stored sample)
+if ("sample" %in% colnames(merged@meta.data)) {
+  DimPlot(merged, reduction = "umap", group.by = "sample", shuffle = TRUE)
+}
+
+p_ref  <- DimPlot(VU40T.combined, reduction="umap",
+                  group.by="seurat_clusters", label=TRUE, repel=TRUE, pt.size=0.4, cols=NULL)
+
+p_fail <- DimPlot(qry_fail, reduction="ref.umap",
+                  cells=Cells(qry_fail), cols= viridisLite::viridis(n=9), pt.size=0.4)
+png(filename = file.path(plots_dir, "human_onlyQC_fail_and_processedSeurat.png"), width = 12, height = 8, units = "in", res = 300)
+
+print(p_ref + p_fail)   # patchwork overlay
+dev.off()
