@@ -2,6 +2,7 @@
 library(Seurat)
 library(Matrix)
 library(tidyverse)
+library(optparse)
 
 # Helper function: compute species % per barcode
 compute_species_df <- function(human_counts, mouse_counts) {
@@ -102,13 +103,45 @@ aggregate_by_gene_fast <- function(mat) {
   return(sparse_mat)
 }
 
+option_list <- list(
+  make_option(c("-h", "--humandir"),
+              type = "character",
+              default = "human",
+              help = "species to use [default = %default]. Options: human or mouse",
+              metavar = "character"),
+  make_option(c("-m", "--mousedir"),
+              type = "character",
+              default = ,
+              help = "input RDS dir to load",
+              metavar = "character"),
+  make_option(c("-c", "--cachedir"),
+              type = "character",
+              default = 1,
+              help = "Path to save intermediate RDS caches [default = %default]",
+              metavar = "character"),
+  make_option(c("-o", "--outdir"),
+              type = "character",
+              default = 1,
+              help = "Path to save results [default = %default]",
+              metavar = "character")
+)
+
+opt_parser <- OptionParser(option_list = option_list)
+opt <- parse_args(opt_parser)
+# print(opt)
+
 # For each sample:
 species_list <- list()
-seurat_list <- list()
+seurat_list_human <- list()
+seurat_list_mouse <- list()
 
-git_dir <- "~/OralMucosa/VU40T_analysis/"
+humandir <- opt$humandir
+mousedir <- opt$mousedir
+outdir <- opt$outdir
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
-plots_dir <- file.path(git_dir, "Mixed_species_plots/")
+outdir <- file.path(proj_dir, "scRNAseqAnalysis/OralMucosa/VU40T_analysis/")
+
+plots_dir <- file.path(outdir, "Mixed_species_plots/")
 if (!(dir.exists(plots_dir))) {
   dir.create(plots_dir)
 }
@@ -168,156 +201,109 @@ for (i in Samples) {
     TRUE ~ "Mixed"
   )
   
+  seurat_mouse$percent_human <- species_df_sub$percent_human
+  seurat_mouse$percent_mouse <- species_df_sub$percent_mouse
+  seurat_mouse$species_label <- case_when(
+    seurat_mouse$percent_human >= 70 ~ "Human",
+    seurat_mouse$percent_mouse >= 70 ~ "Mouse",
+    TRUE ~ "Mixed"
+  )
+  
   # Add sample ID
   seurat_human$sample <- paste0("Sample", i)
+  seurat_mouse$sample <- paste0("Sample", i)
   
-  seurat_list[[i]] <- seurat_human
+  seurat_list_human[[i]] <- seurat_human
+  seurat_list_mouse[[i]] <- seurat_mouse
 }
 
-## inspect species distribution
-ggplot(species_list[[1]][species_list[[1]]$species_label == "Mixed", ]) + geom_histogram(aes(x = percent_human))
+# ## inspect species distribution
+plot_list <- list()
+
+for (sample_name in names(species_list)) {
+  
+  df <- species_list[[sample_name]]
+  
+  p <- ggplot(df, aes(x = percent_human)) +
+    geom_histogram(bins = 50, fill = "#3c8dbc", color = "black") +
+    theme_bw() +
+    ggtitle(sample_name) +
+    xlab("Percent Human") +
+    ylab("Cell Count")
+  
+  plot_list[[sample_name]] <- p
+}
+
+# Combine all into one figure
+combined_plot <- patchwork::wrap_plots(plot_list, ncol = (length(species_list)/2))  # change columns as you like
+
+ggsave(
+  file.path(plots_dir,
+    "percentHuman_species_distribution_histograms.png"
+  )
+  ,
+  combined_plot,
+  width = 14, height = 10, dpi = 300
+)
 
 ## output this for further analysis on seperate alignments
 
 species_df_all <- do.call(rbind, species_list)
-write.csv(species_df_all, file = file.path(
-  git_dir, "VU40T_species_assignment_by_reads.csv"
+
+write.csv(species_df_all, 
+          file = file.path(
+            outdir, 
+            "VU40T_species_assignment_by_reads.csv")
+          )
+
+all_species <- list(
+  human = seurat_list_human,
+  mouse = seurat_list_mouse
 )
-            )
 
-# Combine all samples into one Seurat object
-combined <- merge(seurat_list[[1]], y = seurat_list[2:4])
+for (species in names(all_species)) {
+  alignment_list <- all_species[[species]]
+  
+  message("Processing species: ", species)
 
-# Visualization — UMAP (you can do more!)
-combined <- NormalizeData(combined)
-combined <- FindVariableFeatures(combined)
-combined <- ScaleData(combined)
-combined <- RunPCA(combined)
-combined <- RunUMAP(combined, dims = 1:20)
-
-# Plot species scores
-
-png(filename = file.path(
-  plots_dir, "human_mouse_seurat_percent_species_UMAP_all_cells.png"), 
-  width = 12, 
-  height = 8, 
-  units = "in", 
-  res =  300)
-
-p <- FeaturePlot(combined, features = c("percent_human", "percent_mouse"))
-print(p)
-dev.off()
-
-# Plot species label
-
-png(filename = file.path(
-  plots_dir, "human_mouse_seurat_species_assignment_preprocessing_UMAP.png"), 
-  width = 12, 
-  height = 8, 
-  units = "in", 
-  res =  300)
-
-p <- DimPlot(combined, group.by = "species_label", label = TRUE) + ggtitle("Species assignment per cell")
-print(p)
-dev.off()
-
-
-combined <- FindNeighbors(combined, dims = 1:20)
-combined <- FindClusters(combined, resolution = 0.5)
-
-# Plot species label on UMAP
-DimPlot(combined, group.by = "species_label",  label = TRUE) + ggtitle("Species assignment on UMAP")
-
-
-# ggplot(combined@meta.data %>% filter(species_label == "Mouse" | species_label == "Mixed"), 
-#        aes(x = percent_human, fill = species_label)) +
-#   geom_density(alpha = 0.5) +
-#   theme_classic() +
-#   ggtitle("Percent human in Mouse + Mixed cells")
-
-combined$condition <- ifelse(grepl("LPS-N", combined$sample), "LPS-N", "LPS-P")
-combined$passage <- gsub("_.*", "", combined$sample)
-
-joined_layers <- JoinLayers(combined)
-
-
-
-
-markers <- FindAllMarkers(object = joined_layers, min.pct = 0.25, only.pos = T, logfc.threshold = 0.25)
-
-sig_markers <- markers[markers$p_val_adj <= 0.05, ]
-
-
-# Plot species assignment
-
-png(filename = file.path(
-  plots_dir, "human_mouse_seurat_clusters_preprocessing_UMAP.png"), 
+  combined <- merge(alignment_list[[1]], y = alignment_list[2:length(alignment_list)])
+  
+  # Visualization — UMAP (you can do more!)
+  combined <- NormalizeData(combined)
+  combined <- FindVariableFeatures(combined)
+  combined <- ScaleData(combined)
+  combined <- RunPCA(combined)
+  combined <- RunUMAP(combined, dims = 1:20)
+  
+  # Plot species scores
+  
+  png(filename = file.path(
+    plots_dir, 
+    paste0(species, "_alignment_human_mouse_seurat_percent_species_UMAP_all_cells.png")), 
     width = 12, 
     height = 8, 
     units = "in", 
     res =  300)
+  
+  p <- FeaturePlot(combined, features = c("percent_human", "percent_mouse"))
+  print(p)
+  dev.off()
+  
+  # Plot species label
+  
+  png(filename = file.path(
+    plots_dir, 
+    paste0(species, "_alignment_human_mouse_seurat_species_assignment_preprocessing_UMAP.png")), 
+    width = 12, 
+    height = 8, 
+    units = "in", 
+    res =  300)
+  
+  p <- DimPlot(combined, group.by = "species_label", label = TRUE) + ggtitle(paste0(species, " alignment: Species assignment per cell"))
+  print(p)
+  dev.off()
+}
 
-p <- DimPlot(combined, group.by = "seurat_clusters", split.by = "condition", label = TRUE)
-print(p)
-dev.off()
 
 
-VlnPlot(combined, features = "percent_human", group.by = "seurat_clusters") # or group.by = "species_label_refined"
-
-
-FeaturePlot(combined, features = c("EPCAM", "KRT8", "KRT18"))
-
-
-library(msigdbr)
-library(dplyr)
-
-# human_fibro <- msigdbr(species = "Homo sapiens") %>%
-#   filter(grepl("fibroblast", tolower(gs_name)))
-# 
-# # For mouse fibroblast markers
-# mouse_fibro <- msigdbr(species = "Mus musculus") %>%
-#   filter(grepl("fibroblast", tolower(gs_name)))
-# 
-# mouse_genes <- unique(mouse_fibro$gene_symbol)
-# 
-# human_epi <- msigdbr(species = "Homo sapiens") %>%
-#   filter(grepl("epithelial", tolower(gs_name)))
-# 
-# # For mouse fibroblast markers
-# mouse_epi <- msigdbr(species = "Mus musculus") %>%
-#   filter(grepl("epithelial", tolower(gs_name)))
-# # 
-# # human_genes <- unique(mouse_fibro$gene_symbol)
-# # mouse_genes <- unique(mouse_fibro$gene_symbol)
-# 
-# human_genes <- unique(human_epi$gene_symbol)
-# mouse_genes <- unique(mouse_epi$gene_symbol)
-# 
-# # Make gene symbols comparable
-# human_uc_epi <- toupper(human_genes)
-# mouse_uc_epi <- toupper(mouse_genes)
-# 
-# shared_fibroblast_markers <- intersect(mouse_uc, human_uc)
-# human_only_blacklist <- setdiff(mouse_uc, human_uc)
-# 
-# shared_epi_markers <- intersect(mouse_uc, human_uc)
-# mouse_only_epi_blacklist <- setdiff(mouse_uc, human_uc)
-# 
-# cat("✅ Shared fibroblast markers (Human & Mouse):\n")
-# print(shared_fibroblast_markers)
-# 
-# cat("\n🚫 Mouse-only markers (blacklist):\n")
-# print(mouse_only_epi_blacklist)
-# 
-# markers_list <- read.csv("~/OralMucosa/VU40T_analysis/Integrated/VU40T_significant_markers_resolution_0.5.csv")
-# 
-# filtered_markers <- markers %>%
-#   filter(gene %in% mouse_only_blacklist) ## didn't filter any fibroblast markers
-# 
-# 
-# filtered_markers <- markers %>%
-#   filter(!gene %in% mouse_only_epi_blacklist) ## filtered 9 mouse epithelial markers
-# filtered_markers <- markers %>%filter(gene %in% mouse_only_epi_blacklist) ## filtered 9 mouse epithelial markers
-# 
-# VU40T_0.5res
 
