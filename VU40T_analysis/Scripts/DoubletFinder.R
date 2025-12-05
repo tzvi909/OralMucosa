@@ -8,81 +8,6 @@ library(patchwork)
 library(SingleCellExperiment)
 library(optparse)
 
-option_list <- list(
-  make_option(c("-s", "--species"),
-              type = "character",
-              default = "human",
-              help = "Species to use [default = %default]. Options: human or mouse",
-              metavar = "character"),
-  make_option(c("-i", "--input"),
-              type = "character",
-              default = ,
-              help = "input RDS dir to load",
-              metavar = "character"),
-  make_option(c("-n", "--n_cores"),
-              type = "integer",
-              default = 1,
-              help = "Number of cores to use to run DoubletFinder [default = %default]",
-              metavar = "character")
-)
-
-opt_parser <- OptionParser(option_list = option_list)
-opt <- parse_args(opt_parser)
-print(opt)
-
-n_cores <- opt$n_cores
-
-species <- opt$species
-
-# Store selected species
-species <- tolower(opt$species)
-
-# Validate species input
-if (!species %in% c("human", "mouse")) {
-  stop("Invalid species. Use 'human' or 'mouse'.")
-}
-
-### dir setup
-
-proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
-analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
-git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
-out_prefix_dir <- file.path(git_dir, "Seperate_samples")
-cache_dir <- file.path(proj_dir, "rds_cache")
-
-
-## check for dirs recursively
-
-chk_dir_list <- list(analysis_dir, git_dir, cache_dir, out_prefix_dir)
-
-for (path in chk_dir_list){
-  if(!(dir.exists(path))){
-    dir.create(path, recursive = T)
-  }
-}
-if (is.null(opt$input)){
-  seurat_filtered_list <- readRDS(file.path(cache_dir, paste0("NormAndScaled_VU40T_Seurat_filtered_individual_samples_list_", species,".rds")))
-  } else {
-  seurat_filtered_list <- opt$input
-  ### sanity check if using opt$input arg to make sure species matches seurat list RDS
-  if (any(sapply(seurat_filtered_list, function(obj) any(grepl("^ENSMUS", rownames(obj[["RNA"]])))))) {
-    species <- "mouse"
-  } else {
-    species <- "human"
-  }
-}
-
-plots_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species), "/Plots/DoubletFinder"))
-res_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species), "/Doublet_detection"))
-
-chk_dir_list <- list(plots_dir, res_dir)
-
-for (path in chk_dir_list){
-  if(!(dir.exists(path))){
-    dir.create(path, recursive = T)
-  }
-}
-
 
 ### functs
 
@@ -134,7 +59,7 @@ run_doubletfinder_custom <- function(seu_sample_subset, pc_summary, multiplet_ra
     
     print(paste('Setting multiplet rate to', multiplet_rate))
   }
-
+  
   # pK identification (no ground-truth) 
   #introduces artificial doublets in varying props, merges with real data set and 
   # preprocesses the data + calculates the prop of artficial neighrest neighbours, 
@@ -174,6 +99,95 @@ run_doubletfinder_custom <- function(seu_sample_subset, pc_summary, multiplet_ra
   double_finder_res <- sample@meta.data['doublet_finder'] # get the metadata column with singlet, doublet info
   double_finder_res <- tibble::rownames_to_column(double_finder_res, "row_names") # add the cell IDs as new column to be able to merge correctly
   return(double_finder_res)
+}
+
+option_list <- list(
+  make_option(c("-s", "--species"),
+              type = "character",
+              default = "human",
+              help = "species to use [default = %default]. Options: human or mouse",
+              metavar = "character"),
+  make_option(c("-i", "--input"),
+              type = "character",
+              default = ,
+              help = "input RDS dir to load",
+              metavar = "character"),
+  make_option(c("-n", "--n_cores"),
+              type = "integer",
+              default = 1,
+              help = "Number of cores to use to run  [default = %default]",
+              metavar = "character"),
+  make_option(c("-c", "--cachedir"),
+              type = "character",
+              default = 1,
+              help = "Path to save intermediate RDS caches [default = %default]",
+              metavar = "character"),
+  make_option(c("-o", "--outdir"),
+              type = "character",
+              default = 1,
+              help = "Path to save results [default = %default]",
+              metavar = "character")
+)
+
+opt_parser <- OptionParser(option_list = option_list)
+opt <- parse_args(opt_parser)
+print(opt)
+
+n_cores <- opt$n_cores
+cache_dir <- opt$cachedir
+outdir <- opt$outdir
+species <- opt$species
+input <- opt$input
+
+# Store selected species
+species <- tolower(opt$species)
+
+# Validate species input
+if (!species %in% c("human", "mouse")) {
+  stop("Invalid species. Use 'human' or 'mouse'.")
+}
+
+### dir setup
+
+out_prefix_dir <- file.path(outdir, "Seperate_samples")
+
+proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
+analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
+git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
+out_prefix_dir <- file.path(git_dir, "Seperate_samples")
+cache_dir <- file.path(proj_dir, "rds_cache")
+
+
+## check for dirs recursively
+
+chk_dir_list <- list(out_prefix_dir, cache_dir)
+
+for (path in chk_dir_list){
+  if(!(dir.exists(path))){
+    dir.create(path, recursive = T)
+  }
+}
+if (is.null(input)){
+  seurat_filtered_list <- readRDS(file.path(cache_dir, paste0("NormAndScaled_VU40T_Seurat_filtered_individual_samples_list_", species,".rds")))
+  } else {
+  seurat_filtered_list <- input
+  ### sanity check if using opt$input arg to make sure species matches seurat list RDS
+  if (any(sapply(seurat_filtered_list, function(obj) any(grepl("^ENSMUS", rownames(obj[["RNA"]])))))) {
+    species <- "mouse"
+  } else {
+    species <- "human"
+  }
+}
+
+plots_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species), "/Plots/DoubletFinder"))
+res_dir <- file.path(out_prefix_dir, paste0(stringr::str_to_title(species), "/Doublet_detection"))
+
+chk_dir_list <- list(plots_dir, res_dir)
+
+for (path in chk_dir_list){
+  if(!(dir.exists(path))){
+    dir.create(path, recursive = T)
+  }
 }
 
 
@@ -319,10 +333,6 @@ for (i in seq_along(seurat_filtered_list)){
   dev.off()
 }
 
-
-
-
-## silhouette score validation
 
 ## get only singlets
 seurat_singlets_list <- list()

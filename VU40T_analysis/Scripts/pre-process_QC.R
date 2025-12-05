@@ -16,18 +16,43 @@ option_list <- list(
   make_option(c("-s", "--species"),
               type = "character",
               default = "human",
-              help = "Species to use [default = %default]. Options: human or mouse",
+              help = "species to use [default = %default]. Options: human or mouse",
               metavar = "character"),
   make_option(c("-i", "--input"),
               type = "character",
-              default = ,
               help = "input RDS dir to load",
+              metavar = "character"),
+  make_option(c("-n", "--n_cores"),
+              type = "integer",
+              default = 1,
+              help = "Number of cores to use to run  [default = %default]",
+              metavar = "character"),
+  make_option(c("-c", "--cachedir"),
+              type = "character",
+              default = "rds_cache",
+              help = "Path to save intermediate RDS caches [default = %default]",
+              metavar = "character"),
+  make_option(c("-o", "--outdir"),
+              type = "character",
+              default = ".",
+              help = "Path to save results [default = %default]",
+              metavar = "character"),
+  make_option(c("-m", "--mito_path"),
+              type = "character",
+              help = "Path to load in MT-gene list for hg38",
               metavar = "character")
 )
+
 
 opt_parser <- OptionParser(option_list = option_list)
 opt <- parse_args(opt_parser)
 print(opt)
+
+n_cores <- opt$n_cores
+cache_dir <- opt$cachedir
+mtx_dir <- opt$input
+outdir <- opt$outdir
+mito_path <- opt$mito_path
 
 # Store selected species
 species <- tolower(opt$species)
@@ -40,16 +65,18 @@ if (!species %in% c("human", "mouse")) {
 
 ### dir setup
 
+out_prefix_dir <- file.path(outdir, paste0("Seperate_samples/", stringr::str_to_title(species)))
+
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
 analysis_dir <- file.path(proj_dir, "scRNAseqAnalysis/")
 git_dir <- file.path(analysis_dir, "OralMucosa/VU40T_analysis")
 out_prefix_dir <- file.path(git_dir, paste0("Seperate_samples/", stringr::str_to_title(species)))
 plotQC_dir <- file.path(out_prefix_dir, "Plots/QC")
 cache_dir <- file.path(proj_dir, "rds_cache")
-
+mito_path <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mkref/cellranger_reference/genes/MTgenes.txt")
 ## check for dirs recursively
 
-chk_dir_list <- list(analysis_dir, git_dir, cache_dir, out_prefix_dir, plotQC_dir)
+chk_dir_list <- list(cache_dir, out_prefix_dir, plotQC_dir)
 
 for (path in chk_dir_list){
   if(!(dir.exists(path))){
@@ -57,11 +84,11 @@ for (path in chk_dir_list){
   }
 }
 
-if (species == "human"){
-  mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mtx_conversions")
-} else {
-  mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts_Mouse/cellranger/mtx_conversions")
-}
+# if (species == "human"){
+#   mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mtx_conversions")
+# } else {
+#   mtx_dir <- file.path(proj_dir, "BaseSpace/LPS_VU40T_QC_and_counts_Mouse/cellranger/mtx_conversions")
+# }
 
 Samples <- list.files(path = mtx_dir, 
                       pattern = "^P",
@@ -102,7 +129,7 @@ if (species == "mouse"){
   for(i in seq_along(SeuratList)){
     seurat_obj <- SeuratList[[i]]
     # 2. Get Ensembl IDs from your Seurat object (assumes default assay is RNA)
-    ens_ids <- rownames(seurat_obj[["RNA"]])  # or seurat_obj if default assay
+    ens_ids <- rownames(seurat_obj[["RNA"]])
     
     # 3. Query BioMart for gene symbol mappings
     gene_map <- getBM(
@@ -139,8 +166,6 @@ has_mito_prefix <- any(sapply(SeuratList, function(obj) {
 }))
 
 if (!has_mito_prefix) {
-  mito_path <- "/rds/projects/g/gendood-3dmucosa/BaseSpace/LPS_VU40T_QC_and_counts/cellranger/mkref/cellranger_reference/genes/MTgenes.txt"
-  
   if (file.exists(mito_path)) {
     mito_genes <- read.delim(mito_path, sep = "\t", header = FALSE)
     mito_genes <- c(t(mito_genes))
@@ -156,6 +181,31 @@ thresholds_df <- data.frame(
   cutoff = c(300, 350, 300, 300)
 )
 
+has_mito_prefix <- any(sapply(SeuratList, function(obj) {
+  any(grepl("^MT-", rownames(obj[["RNA"]]))) |
+    any(grepl("^mt-", rownames(obj[["RNA"]])))
+}))
+
+if (!has_mito_prefix) {
+  if (file.exists(mito_path)) {
+    mito_genes <- read.delim(mito_path, sep = "\t", header = FALSE)
+    mito_genes <- c(t(mito_genes))
+  } else {
+    if (species == "human"){
+      stop("❌ Mitochondrial gene list not found at: ", mito_path)
+    }
+  }
+}
+
+for(i in seq_along(SeuratList)){
+  if (species == "human"){
+    SeuratList[[i]][["percent.mt"]] <- PercentageFeatureSet(SeuratList[[i]], features = mito_genes)
+  } else {
+    SeuratList[[i]][["percent.mt"]] <- PercentageFeatureSet(SeuratList[[i]], pattern = "^mt-")
+    
+  }
+}
+
 seurat_filtered_list <- list() 
 all_qc_metadata <- list()
 for (sample in seq_along(SeuratList)) {
@@ -168,14 +218,14 @@ for (sample in seq_along(SeuratList)) {
     mito_flag <- rownames(sce) %in% mito_genes
   } else if (any(grepl("^MT-", rownames(seurat_obj[["RNA"]]))) &
              !any(grepl("^mt-", rownames(seurat_obj[["RNA"]])))
-             ) {
+  ) {
     mito_genes_detected <- rownames(seurat_obj[["RNA"]])[grepl("^MT[-]?", rownames(seurat_obj[["RNA"]]))]
     mito_flag <- rownames(sce) %in% mito_genes_detected
   } else {
     mito_genes_detected <- rownames(seurat_obj[["RNA"]])[grepl("^mt[-]?", rownames(seurat_obj[["RNA"]]))]
     mito_flag <- rownames(sce) %in% mito_genes_detected
   }
-  
+
   # Calculate QC metrics
   qc_metrics <- perCellQCMetrics(sce, subsets = list(Mt = mito_flag))
   
@@ -235,7 +285,7 @@ p1 <- ggplot(qc_df, aes(x = detected, fill = qc_pass)) +
 print(p1)
 dev.off()
 
-png(filename = file.path(plotQC_dir, "QC_combined_FeatureScatter.png"), width = 10, height = 7, res = 300, units = "in")
+png(filename = file.path(plotQC_dir, "QC_combined_MTcounts_FeatureScatter.png"), width = 10, height = 7, res = 300, units = "in")
 p2 <- ggplot(qc_df, aes(x = nFeature_RNA, y = percent_mt, color = qc_pass)) +
   geom_point(alpha = 0.3, size = 0.5) +
   facet_wrap(~sample_id) +
