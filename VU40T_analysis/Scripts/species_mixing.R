@@ -299,7 +299,7 @@ for (species in names(all_species)) {
     units = "in", 
     res =  300)
   
-  p <- DimPlot(combined, group.by = "species_label", label = TRUE) + ggtitle(paste0(species, " alignment: Species assignment per cell"))
+  p <- DimPlot(combined, group.by = "species_label", label = FALSE) + ggtitle(paste0(species, " alignment: Species assignment per cell"))
   print(p)
   dev.off()
 }
