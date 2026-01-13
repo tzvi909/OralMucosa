@@ -224,12 +224,31 @@ for (sample_name in names(species_list)) {
   
   df <- species_list[[sample_name]]
   
+  # create percent_human once
+  df$percent_human <- 100 - df$percent_mouse
+  
   p <- ggplot(df, aes(x = percent_human)) +
     geom_histogram(bins = 50, fill = "#3c8dbc", color = "black") +
+    geom_vline(xintercept = c(30, 70), linetype = "dashed") +
     theme_bw() +
     ggtitle(sample_name) +
-    xlab("Percent Human") +
-    ylab("Cell Count")
+    ylab("Cell Count") +
+    scale_x_continuous(
+      name = "Percent Human",
+      limits = c(0, 100),
+      
+      # only the TOP axis is reversed
+      sec.axis = sec_axis(
+        trans = ~ 100 - .,
+        name = "Percent Mouse"
+      )
+    ) +
+    annotate("text", x = 12, y = Inf, label = "Mouse",
+             vjust = 1.5, size = 4, colour = "red") +
+    annotate("text", x = 50, y = Inf, label = "Mixed",
+             vjust = 1.5, size = 4, colour = "red") +
+    annotate("text", x = 88, y = Inf, label = "Human",
+             vjust = 1.5, size = 4, colour = "red")
   
   plot_list[[sample_name]] <- p
 }
@@ -239,7 +258,7 @@ combined_plot <- patchwork::wrap_plots(plot_list, ncol = (length(species_list)/2
 
 ggsave(
   file.path(plots_dir,
-    "percentHuman_species_distribution_histograms.png"
+    "percent_species_distribution_histograms.png"
   )
   ,
   combined_plot,
