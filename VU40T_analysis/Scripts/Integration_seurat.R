@@ -43,6 +43,7 @@ print(opt)
 n_cores <- opt$n_cores
 
 species <- opt$species
+input <- opt$input
 
 ## to avoid hitting that 20gb quota on home dir,
 proj_dir <- "/rds/projects/g/gendood-3dmucosa/"
@@ -65,7 +66,6 @@ for (path in chk_dir_list){
 ### funcs
 
 
-
 make_marker_dotplots <- function(
     seurat_obj,
     genelist,
@@ -85,6 +85,16 @@ make_marker_dotplots <- function(
   if (!requireNamespace("tools", quietly = TRUE)) stop("Package 'tools' is required.")
   # biomaRt only needed for on-the-fly mapping
   biomart_ok <- requireNamespace("biomaRt", quietly = TRUE)
+  
+  # seurat_obj = VU40T.combined 
+  # genelist 
+  # export = T 
+  # outPrefix = paste0(species, "_onlySET1") 
+  # plot_dir = plots_dir
+  # resolution_tag = optimum_res
+  # cluster_field = "seurat_clusters"
+  # max_width_in = 50                  # cap image width
+  # retry_wait_sec = c(1, 2, 4) 
   
   # --- output dir ---
   out_dir <- file.path(plot_dir, "MarkerDotplots")
@@ -108,6 +118,9 @@ make_marker_dotplots <- function(
   meta_species <- tryCatch(seurat_obj$species, error = function(e) NULL)
   is_mouse <- !is.null(meta_species) && all(meta_species == "Mouse", na.rm = TRUE)
   is_human <- !is.null(meta_species) && all(meta_species == "Human", na.rm = TRUE)
+  
+  mouse_features_upper <- is_mouse && all(rownames(seurat_obj) == toupper(rownames(seurat_obj)))
+  
   
   # --- helper: robust human -> mouse mapping using biomaRt with retries/mirrors ---
   get_h2m_map <- function(genes) {
@@ -168,7 +181,7 @@ make_marker_dotplots <- function(
     setNames(conv$mmusculus_homolog_associated_gene_name,
              conv$external_gene_name)
   }
-  
+  human_to_mouse_map = NULL
   # --- build mapping once if needed ---
   if (is_mouse && is.null(human_to_mouse_map)) {
     all_genes <- unique(unlist(genelist))
@@ -178,6 +191,15 @@ make_marker_dotplots <- function(
         NULL
       })
     }
+  }
+  if (is_mouse &&
+      !is.null(human_to_mouse_map) &&
+      all(rownames(seurat_obj) == toupper(rownames(seurat_obj)))) {
+    
+    names(human_to_mouse_map) <- toupper(names(human_to_mouse_map))
+    human_to_mouse_map <- toupper(unname(human_to_mouse_map))
+    # restore names after unname
+    names(human_to_mouse_map) <- toupper(names(human_to_mouse_map))
   }
   
   # --- plotting loop ---
@@ -208,7 +230,7 @@ make_marker_dotplots <- function(
     
     # Title-case gene labels for mouse display (cosmetic)
     if (is_mouse) {
-      p <- p + ggplot2::scale_x_discrete(labels = function(x) tools::toTitleCase(tolower(x)))
+      p <- p + ggplot2::scale_x_discrete(labels = function(x) stringr::str_to_title(x))
     }
     
     # Export or print
@@ -233,10 +255,10 @@ make_marker_dotplots <- function(
   }
 }
 
-if (is.null(opt$input)){
+if (is.null(input)){
   preIntegrationSeuratList <- readRDS(file.path(cache_dir, paste0("VU40T_singlets_only_sep_samples_",species,".RDS")))
 } else {
-  preIntegrationSeuratList <- readRDS(opt$input)
+  preIntegrationSeuratList <- readRDS(input)
   ### sanity check if using opt$input arg to make sure species matches seurat list RDS
   if (any(sapply(preIntegrationSeuratList, function(obj) any(grepl("^ENSMUS", rownames(obj[["RNA"]])))))) {
     species <- "mouse"
@@ -260,11 +282,10 @@ for (path in out_dir_list){
 
 species_df <- read.csv(file.path(git_dir, "/VU40T_species_assignment_by_reads.csv"))[,-c(1)]
 
-preIntegrationSeuratList <- readRDS("annotated_VU40T_sepsamples_singlets_only_mouse.rds")
+# preIntegrationSeuratList <- readRDS("annotated_VU40T_sepsamples_singlets_only_mouse.rds")
+# 
+# preIntegrationSeuratList <- readRDS("R/VU40T_singlets_only_sep_samples.RDS")
 
-preIntegrationSeuratList <- readRDS("R/VU40T_singlets_only_sep_samples.RDS")
-
-species <- "Human"
 
 levels(preIntegrationSeuratList[[4]]$sample)[
   levels(preIntegrationSeuratList[[4]]$sample) == "P22_LPS-N"
@@ -359,6 +380,98 @@ if(species == "Mouse"){
 }
 
 
+### pre-integration QC
+
+# Compute per-sample pseudobulk vector (gene means across cells)
+pb_mat <- sapply(names(preIntegrationSeuratList), function(nm) {
+  obj <- preIntegrationSeuratList[[nm]]
+  
+  DefaultAssay(obj) <- "RNA"
+  
+  x <- GetAssayData(obj, slot = "data")
+  
+  # gene-wise mean across cells (works for sparse matrices too)
+  if (inherits(x, "dgCMatrix")) {
+    Matrix::rowMeans(x)
+  } else {
+    rowMeans(as.matrix(x))
+  }
+})
+
+# Ensure matrix shape: genes x samples
+pb_mat <- as.matrix(pb_mat)
+
+#pearson correlation
+cor_mat <- cor(pb_mat, method = "pearson", use = "pairwise.complete.obs")
+
+# Color mapping
+col_fun <- circlize::colorRamp2(
+  c(0.9,0.95, 1),
+  c("#2166AC", "#F7F7F7", "#B2182B")
+)
+
+# ComplexHeatmap plot
+ht <- Heatmap(
+  cor_mat,
+  name = "r",
+  col = col_fun,
+  cluster_rows = TRUE,
+  cluster_columns = TRUE,
+  rect_gp = grid::gpar(col = "white", lwd = 1),
+  heatmap_legend_param = list(at = c(0.9, 0.95, 1)#,
+                              # title_gp  = grid::gpar(fontsize = 8),
+                              # labels_gp = grid::gpar(fontsize = 7)
+                              ),
+  # cell_fun = function(j, i, x, y, w, h, fill) {
+  #   grid::grid.text(sprintf("%.2f", cor_mat[i, j]), x, y, gp = grid::gpar(fontsize = 10))
+  # },
+  column_title = "Intersample Whole Transcriptome Correlation",
+  row_title = NULL
+)
+
+png(filename = file.path(plots_dir, 
+                         paste0("IntersampleWTranscriptomeCorHeatMap_", species, "_only.png")),
+    height = 4 ,width = 6, units = "in", res = 300)
+draw(ht)
+dev.off()
+
+
+qc_df <- bind_rows(lapply(names(preIntegrationSeuratList), function(s) {
+  
+  obj <- preIntegrationSeuratList[[s]]
+  
+  data.frame(
+    sample = s,
+    nFeature_RNA = obj$nFeature_RNA,
+    nCount_RNA   = obj$nCount_RNA,
+    subsets_Mt_percent = obj$subsets_Mt_percent
+  )
+}))
+
+qc_long <- qc_df %>%
+  tidyr::pivot_longer(
+    cols = c(nFeature_RNA, nCount_RNA, subsets_Mt_percent),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+## pre integration QC plots
+png(file = file.path(plots_dir, 
+                     paste0(species,"Only_preIntegration_QC_violins.png")),
+    width = 8, height = 4, units = "in", res = 300)
+
+p <- ggplot(qc_long, aes(x = sample, y = value, fill = sample)) +
+    geom_violin(trim = TRUE) +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    facet_wrap(~ metric, scales = "free_y", nrow = 1) +
+    theme_bw() +
+    theme(legend.position = "none") +
+    ylab("Value") +
+    xlab("Sample") +
+    ggtitle("QC metrics across samples (pre-integration)")
+print(p)
+dev.off()
+
 ## now we can integrate and not worry about mess from cross-species interaction
 
 Anchors <- FindIntegrationAnchors(preIntegrationSeuratList, 
@@ -375,7 +488,7 @@ VU40T.combined$passage <- gsub("_.*", "", VU40T.combined$sample)
 DefaultAssay(VU40T.combined) <- "integrated"
 
 rm(Anchors)
-rm(preIntegrationSeuratList)
+
 VU40T.combined <- ScaleData(VU40T.combined, verbose = F)
 
 VU40T.combined <- RunPCA(VU40T.combined, npcs = 50, verbose = F)
@@ -520,13 +633,123 @@ if (species == "human"){
 ##VU40T.combined<- readRDS(file.path(cache_dir, "VU40T_combined_joined_1_res_humanOnly.rds")) ## overclustered
 ## from crash
 # if (species == "human"){
-#   VU40T.combined <- readRDS(file.path(cache_dir, "VU40T_combined_joined_0.3_res_humanOnly.rds"))
+  # VU40T.combined <- readRDS(file.path(cache_dir, "VU40T_combined_joined_0.3_res_humanOnly.rds"))
 # } else {
-#   VU40T.combined <- readRDS(file.path(cache_dir, "VU40T_combined_joined_0.6_res_mouseOnly.rds"))
+  # VU40T.combined <- readRDS(file.path(cache_dir, "VU40T_combined_joined_0.6_res_mouseOnly.rds"))
 # }
 ##find markers
 ##mouse only
 
+### pre and post Integration QC
+
+merged_pre <- merge(
+  preIntegrationSeuratList[[1]],
+  y = preIntegrationSeuratList[-1],
+  add.cell.ids = names(preIntegrationSeuratList),
+  project = "pre_integration"
+)
+
+DefaultAssay(merged_pre) <- "RNA"
+merged_pre <- NormalizeData(merged_pre)
+merged_pre <- FindVariableFeatures(merged_pre)
+merged_pre <- ScaleData(merged_pre)
+merged_pre <- RunPCA(merged_pre)
+merged_pre <- RunUMAP(merged_pre, dims = 1:optimal_pc)
+
+p1 <- DimPlot(merged_pre, reduction = "umap", group.by = "sample") +
+  ggtitle("Before integration (RNA)")
+
+DefaultAssay(VU40T.combined) <- "integrated"
+p2 <- DimPlot(VU40T.combined, reduction = "umap", group.by = "sample") +
+  ggtitle("After integration (CCA)")
+
+png(file = file.path(plots_dir, 
+                     paste0(species, 
+                            "only_",optimal_pc,"PCs_UMAPs_pre_and_post_integration.png")),
+    width = 10, height = 5, units = "in", res = 300)
+
+print(p1+p2)
+dev.off()
+
+## implementing lisi as a metric here for batch mixing
+
+emb_int <- Embeddings(VU40T.combined, reduction = "pca")[, 1:10, drop = FALSE]
+meta_int <- VU40T.combined@meta.data
+
+lisi_int <- lisi::compute_lisi(
+  X = emb_int,
+  meta_data = meta_int,
+  label_colnames = c("sample")   # or "orig.ident" if that's your column
+)
+
+
+
+lisi_scores <- lisi::compute_lisi(emb_int, 
+                                  meta_int, 
+                                  label_colnames = c("sample", "seurat_clusters"))
+summary(lisi_scores)
+
+DefaultAssay(merged_pre) <- "RNA"
+
+emb_pre <- Embeddings(merged_pre, reduction = "pca")[, 1:10, drop = FALSE]
+meta_pre <- merged_pre@meta.data
+
+lisi_pre <- lisi::compute_lisi(
+  X = emb_pre,
+  meta_data = meta_pre,
+  label_colnames = c("sample")
+)
+
+
+df_lisi <- rbind(
+  data.frame(stage = "Before integration (RNA)", iLISI = lisi_pre$sample),
+  data.frame(stage = "After integration (CCA)",  iLISI = lisi_int$sample)
+)
+
+df_lisi$stage <- factor(df_lisi$stage,  
+                           levels = c("Before integration (RNA)", "After integration (CCA)"))
+
+wil <- wilcox.test(iLISI ~ stage, data = df_lisi, exact = FALSE)
+
+
+p <- ggplot(df_lisi, aes(x = stage, y = iLISI)) +
+    geom_violin(trim = TRUE) +
+    geom_boxplot(width = 0.15, outlier.shape = NA) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 0, hjust = 0.5)) +
+    ylab("iLISI (sample mixing)") +
+    xlab(NULL)
+
+p <- p + ggpubr::stat_compare_means(
+  method = "wilcox.test",
+  comparisons = list(c("Before integration (RNA)", "After integration (CCA)")),
+  label = "p.format"
+)
+
+print(p)
+ggsave(filename = file.path(plots_dir, 
+                            paste0(species,"only_lisi_BeforeandAfter_wilcoxon.png")),
+        width = 4, height = 5, units = "in")
+# compute medians
+meds <- tapply(df_lisi$iLISI, df_lisi$stage, median)
+
+effect_table <- data.frame(
+  stage = names(meds),
+  median_iLISI = as.numeric(meds)
+)
+
+# add delta (after - before)
+effect_table$delta_from_before <- effect_table$median_iLISI -
+  effect_table$median_iLISI[effect_table$stage == "Before integration (RNA)"]
+
+write.csv(effect_table, file = file.path(res_dir, "iSLI_effectsize.csv"), row.names = F)
+
+
+rm(preIntegrationSeuratList)
+
+rm(merged_pre)
+
+DefaultAssay(VU40T.combined) <- "RNA"
 
 if (all(VU40T.combined$species == "Mouse")){
   Species <- "Mouse"
@@ -690,6 +913,10 @@ dev.off()
 
 ### marker dotplots
 genelist <- read.csv("~/Markers_for_dotplots_2_set1.csv", header = T) ## both human and mouse markers
+
+if(species == "mouse"){
+  VU40T.combined <- subset(VU40T.combined, idents = 13, invert = TRUE)
+}
 
 make_marker_dotplots(VU40T.combined, 
                      genelist, 
@@ -857,99 +1084,6 @@ if (all(VU40T.combined$species == "Human")){
   genelist <- readxl::read_excel(file.path(proj_dir,"scRNAseqAnalysis/Markers_for_dotplots_3.xlsx"), sheet = 11, skip = 1)
   make_marker_dotplots(VU40T.combined, genelist, export = T, outPrefix = paste0(species, "_Fig4_Epithelial",optimum_res), plot_dir = plots_dir)
   
-  
-  #   FeaturePlot(VU40T.combined, features=c("DDR1", "RHOA")) & scale_color_viridis()
-  #   
-  #   pemt_genes <- c(
-  #     "VIM","FN1","ITGA5","ITGB1","SERPINE1","LAMC2","LAMB3","PDPN",
-  #     "MMP14","MMP1","MMP10","TGFBI","PLAUR","FSCN1","COL7A1",
-  #     "CXCL8","CXCL1","SNAI2","ZEB1","KRT14","ITGA6"
-  #   )
-  #   rho_acto_genes <- c(
-  #     "RHOA","RHOC","ROCK1","ROCK2","MYL9","MYH9","MYH10","ACTN1",
-  #     "TAGLN","DIAPH1","DIAPH3","LIMK1","LIMK2","CFL1","PFN1",
-  #     "PPP1R12A","MYLK","DAAM1","ARHGEF11","ARHGEF12"
-  #   )
-  #   modules = list(pemt_genes, rho_acto_genes)
-  #   names(modules) <- c("pemt_genes", "rho_acto_genes")
-  #   seu <- VU40T.combined
-  #   for (nm in names(modules)) {
-  #     
-  #     seu <- AddModuleScore(seu, features = list(modules[[nm]]), name = nm, nbin = 24, ctrl = 100)
-  #     
-  #   }
-  #   png(file.path(plots_dir, "rho_acto_pemt_module_umap.png"), 
-  #       width = 12, height = 8, units = "in", res = 300)
-  #   
-  #   
-  #   p <- FeaturePlot(seu, features = c("pemt_genes1","rho_acto_genes1"),
-  #                    order = TRUE, cols = viridisLite::viridis(n = 5))
-  #   print(p)
-  #   dev.off()
-  #   
-  #   png(file.path(plots_dir, "rho_acto_pemt_module_violin.png"), 
-  #       width = 12, height = 8, units = "in", res = 300)
-  #   
-  #   p <- VlnPlot(seu, features = c("pemt_genes1","rho_acto_genes1"))
-  #   print(p)
-  #   dev.off()
-  # }
-  # table(VU40T.combined$seurat_clusters)
-  
-  # clust6 <- subset(seu, idents = 6)
-  # clust6$pemt_genes1
-  # clust6$rho_acto_genes1
-  # 
-  # # Create dataframe
-  # clust6_df <- data.frame(
-  #   cell_barcodes = names(clust6$pemt_genes1),
-  #   pemt_genes = clust6$pemt_genes1,
-  #   rho_acto_genes = clust6$rho_acto_genes1
-  # )
-  # 
-  # # Define color and alpha rules
-  # clust6_df <- clust6_df %>%
-  #   mutate(
-  #     label_color = case_when(
-  #       pemt_genes > 0.8 ~ "red",
-  #       rho_acto_genes > 0.6 ~ "blue",
-  #       TRUE ~ "grey70"
-  #     ),
-  #     alpha_val = case_when(
-  #       pemt_genes > 0.8 ~ 1,
-  #       rho_acto_genes > 0.6 ~ 1,
-  #       TRUE ~ 0.2
-  #     )
-  #   )
-  # 
-  # # Pivot to long format for plotting
-  # clust6_long <- clust6_df %>%
-  #   tidyr::pivot_longer(
-  #     cols = c(pemt_genes, rho_acto_genes),
-  #     names_to = "module",
-  #     values_to = "expression"
-  #   )
-  # 
-  # 
-  # # Plot
-  # png(file.path(plots_dir, "cluster6_rho_acto_pemt_module_scatter_plot.png"), 
-  #     width = 12, height = 8, units = "in", res = 300)
-  # 
-  # p <- ggplot(clust6_long, aes(x = cell_barcodes, y = expression, color = module, alpha = alpha_val)) +
-  #   geom_point() +
-  #   scale_alpha_identity() +
-  #   guides(alpha = "none") +
-  #   labs(x = "Cell barcodes", y = "Expression", color = "Module") +
-  #   scale_x_discrete(
-  #     labels = setNames(
-  #       paste0("<span style='color:", clust6_df$label_color, "'>", clust6_df$cell_barcodes, "</span>"),
-  #       clust6_df$cell_barcodes
-  #     )
-  #   ) + theme_minimal() +
-  #   theme(axis.text.x = ggtext::element_markdown(angle = 90, hjust = 1))
-  # 
-  # print(p)
-  # dev.off()
 }
 ## genelist 3 -> mouse and human epithelial, fibroblast and EMT markers
 genelist <- as.data.frame(read.csv("~/Markers_for_dotplots_2_ep_2nd_set.csv", header = T, skip = 1))
@@ -995,7 +1129,7 @@ print(p)
 dev.off()
 
 if (all(VU40T.combined$species == "Mouse")){
-  
+
   
   ## make stacked barplot of num fibroblasts per clust
   # clust_cell_df <- as.data.frame(table(VU40T.combined$seurat_clusters))
