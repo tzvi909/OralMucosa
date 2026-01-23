@@ -63,6 +63,10 @@ for (path in chk_dir_list){
   }
 }
 
+human_cache <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl", mirror = "useast")
+mouse_cache <- useEnsembl(biomart = "genes", dataset = "mmusculus_gene_ensembl", mirror = "useast")
+
+
 ### funcs
 
 
@@ -75,26 +79,18 @@ make_marker_dotplots <- function(
     human_to_mouse_map = NULL,          # pass a cached mapping if you have it
     cluster_field = "seurat_clusters",  # which metadata field to group by
     resolution_tag = "0.6",             # used in filename
-    max_width_in = 50,                  # cap image width
-    retry_wait_sec = c(1, 2, 4)         # backoff between retries
+    max_width_in = 50                  # cap image width
 ) {
   # --- deps ---
   if (!requireNamespace("Seurat", quietly = TRUE)) stop("Package 'Seurat' is required.")
   if (!requireNamespace("ggplot2", quietly = TRUE)) stop("Package 'ggplot2' is required.")
   if (!requireNamespace("stringr", quietly = TRUE)) stop("Package 'stringr' is required.")
   if (!requireNamespace("tools", quietly = TRUE)) stop("Package 'tools' is required.")
-  # biomaRt only needed for on-the-fly mapping
-  biomart_ok <- requireNamespace("biomaRt", quietly = TRUE)
   
-  # seurat_obj = VU40T.combined 
-  # genelist 
-  # export = T 
-  # outPrefix = paste0(species, "_onlySET1") 
-  # plot_dir = plots_dir
-  # resolution_tag = optimum_res
-  # cluster_field = "seurat_clusters"
-  # max_width_in = 50                  # cap image width
-  # retry_wait_sec = c(1, 2, 4) 
+  # Offline ortholog mapping deps (replaces biomaRt)
+  if (!requireNamespace("AnnotationDbi", quietly = TRUE)) stop("Package 'AnnotationDbi' is required for offline mapping.")
+  if (!requireNamespace("org.Hs.eg.db", quietly = TRUE)) stop("Package 'org.Hs.eg.db' is required for offline mapping.")
+  if (!requireNamespace("org.Mm.eg.db", quietly = TRUE)) stop("Package 'org.Mm.eg.db' is required for offline mapping.")
   
   # --- output dir ---
   out_dir <- file.path(plot_dir, "MarkerDotplots")
@@ -121,85 +117,81 @@ make_marker_dotplots <- function(
   
   mouse_features_upper <- is_mouse && all(rownames(seurat_obj) == toupper(rownames(seurat_obj)))
   
-  
-  # --- helper: robust human -> mouse mapping using biomaRt with retries/mirrors ---
-  get_h2m_map <- function(genes) {
-    if (!biomart_ok) stop("biomaRt is not installed; cannot perform online mapping.")
+  # --- helper: offline human -> mouse mapping via HomoloGene IDs ---
+  get_h2m_map_offline <- function(genes) {
     genes <- unique(genes[!is.na(genes) & nzchar(genes)])
     
-    # Try mirrors with small backoff. This avoids the HTML/5xx transient errors.
-    mirrors <- c("useast", "uswest", "www", "asia")
-    last_err <- NULL
-    conv <- NULL
+    hs_db <- getNamespace("org.Hs.eg.db")$org.Hs.eg.db
+    mm_db <- getNamespace("org.Mm.eg.db")$org.Mm.eg.db
     
-    for (m in mirrors) {
-      # retry a few times per mirror
-      for (wait in retry_wait_sec) {
-        mart <- try(
-          biomaRt::useEnsembl(biomart = "ensembl",
-                              dataset = "hsapiens_gene_ensembl",
-                              mirror = m),
-          silent = TRUE
-        )
-        if (inherits(mart, "try-error")) {
-          last_err <- conditionMessage(attr(mart, "condition"))
-          Sys.sleep(wait)
-          next
-        }
-        conv <- try(
-          biomaRt::getBM(
-            attributes = c("external_gene_name", "mmusculus_homolog_associated_gene_name"),
-            filters    = "external_gene_name",
-            values     = genes,
-            mart       = mart
-          ),
-          silent = TRUE
-        )
-        if (!inherits(conv, "try-error")) break
-        last_err <- conditionMessage(attr(conv, "condition"))
-        # Sometimes the error text is a chunk of HTML; we just back off & retry
-        Sys.sleep(wait)
-      }
-      if (!inherits(conv, "try-error") && !is.null(conv)) break
-    }
+    hs_cols <- AnnotationDbi::columns(hs_db)
+    mm_cols <- AnnotationDbi::columns(mm_db)
+    hs_kts  <- AnnotationDbi::keytypes(hs_db)
+    mm_kts  <- AnnotationDbi::keytypes(mm_db)
     
-    if (is.null(conv) || inherits(conv, "try-error")) {
-      warning(sprintf(
-        "BiomaRt mapping failed across mirrors (%s). Proceeding without conversion.",
-        if (is.null(last_err)) "unknown" else last_err
-      ))
+    # Prefer HOMOLOGENE if available
+    use_homologene <- ("HOMOLOGENE" %in% hs_cols) && ("HOMOLOGENE" %in% hs_kts) &&
+      ("HOMOLOGENE" %in% mm_kts) && ("SYMBOL" %in% mm_cols)
+    
+    if (!use_homologene) {
+      warning("Offline ortholog mapping via HOMOLOGENE not available in org.*.eg.db on this system. Proceeding without conversion.")
       return(NULL)
     }
     
-    conv <- conv[
-      !is.na(conv$mmusculus_homolog_associated_gene_name) &
-        nzchar(conv$mmusculus_homolog_associated_gene_name),
-      , drop = FALSE
-    ]
+    # Human SYMBOL -> HOMOLOGENE
+    hs_map <- AnnotationDbi::select(
+      hs_db,
+      keys    = genes,
+      keytype = "SYMBOL",
+      columns = c("SYMBOL", "HOMOLOGENE")
+    )
+    hs_map <- hs_map[!is.na(hs_map$HOMOLOGENE) & nzchar(hs_map$HOMOLOGENE), , drop = FALSE]
+    if (nrow(hs_map) == 0) return(NULL)
     
-    # Build mapping (keep case as returned; do NOT toupper)
-    setNames(conv$mmusculus_homolog_associated_gene_name,
-             conv$external_gene_name)
+    # HOMOLOGENE -> Mouse SYMBOL
+    mm_map <- AnnotationDbi::select(
+      mm_db,
+      keys    = unique(hs_map$HOMOLOGENE),
+      keytype = "HOMOLOGENE",
+      columns = c("HOMOLOGENE", "SYMBOL")
+    )
+    mm_map <- mm_map[!is.na(mm_map$SYMBOL) & nzchar(mm_map$SYMBOL), , drop = FALSE]
+    if (nrow(mm_map) == 0) return(NULL)
+    
+    # Join human->homologene to mouse->symbol
+    joined <- merge(
+      hs_map[, c("SYMBOL", "HOMOLOGENE"), drop = FALSE],
+      mm_map[, c("HOMOLOGENE", "SYMBOL"), drop = FALSE],
+      by = "HOMOLOGENE",
+      suffixes = c(".human", ".mouse")
+    )
+    
+    # Build a named character vector: names = human SYMBOL, values = mouse SYMBOL
+    # If multiple mouse symbols per human, keep the first (deterministic alphabetical)
+    joined <- joined[order(joined$SYMBOL.human, joined$SYMBOL.mouse), , drop = FALSE]
+    first_mouse <- tapply(joined$SYMBOL.mouse, joined$SYMBOL.human, function(x) x[1])
+    
+    out <- unname(first_mouse)
+    names(out) <- names(first_mouse)
+    out
   }
-  human_to_mouse_map = NULL
+  
   # --- build mapping once if needed ---
   if (is_mouse && is.null(human_to_mouse_map)) {
     all_genes <- unique(unlist(genelist))
     if (length(all_genes) > 0) {
-      human_to_mouse_map <- tryCatch(get_h2m_map(all_genes), error = function(e) {
-        warning(sprintf("Mapping failed: %s", conditionMessage(e)))
+      human_to_mouse_map <- tryCatch(get_h2m_map_offline(all_genes), error = function(e) {
+        warning(sprintf("Offline mapping failed: %s. Proceeding without conversion.", conditionMessage(e)))
         NULL
       })
     }
   }
-  if (is_mouse &&
-      !is.null(human_to_mouse_map) &&
-      all(rownames(seurat_obj) == toupper(rownames(seurat_obj)))) {
-    
+  
+  # If mouse object stores features in UPPERCASE, align mapping keys/values to uppercase
+  if (is_mouse && !is.null(human_to_mouse_map) && mouse_features_upper) {
+    human_to_mouse_map <- human_to_mouse_map[!is.na(names(human_to_mouse_map)) & nzchar(names(human_to_mouse_map))]
     names(human_to_mouse_map) <- toupper(names(human_to_mouse_map))
-    human_to_mouse_map <- toupper(unname(human_to_mouse_map))
-    # restore names after unname
-    names(human_to_mouse_map) <- toupper(names(human_to_mouse_map))
+    human_to_mouse_map <- toupper(unname(human_to_mouse_map)) |> setNames(toupper(names(human_to_mouse_map)))
   }
   
   # --- plotting loop ---
@@ -210,6 +202,7 @@ make_marker_dotplots <- function(
     
     # If mouse object and we have a mapping, convert human→mouse
     if (is_mouse && !is.null(human_to_mouse_map)) {
+      if (mouse_features_upper) genes_i <- toupper(genes_i)
       genes_i <- unname(human_to_mouse_map[genes_i])
       genes_i <- unique(genes_i[!is.na(genes_i) & nzchar(genes_i)])
     }
@@ -254,6 +247,7 @@ make_marker_dotplots <- function(
     }
   }
 }
+
 
 if (is.null(input)){
   preIntegrationSeuratList <- readRDS(file.path(cache_dir, paste0("VU40T_singlets_only_sep_samples_",species,".RDS")))
@@ -435,7 +429,51 @@ png(filename = file.path(plots_dir,
 draw(ht)
 dev.off()
 
+## diagnostic pca
 
+merged <- merge(
+  x = preIntegrationSeuratList[[1]],
+  y = preIntegrationSeuratList[-1],
+  add.cell.ids = names(preIntegrationSeuratList),
+  project = "merged_preintegration"
+)
+
+merged$condition <- ifelse(grepl("LPS-N", merged$sample), "LPS-N", "LPS-P")
+merged$passage <- gsub("_.*", "", merged$sample)
+
+
+DefaultAssay(merged) <- "RNA"
+merged <- NormalizeData(merged)
+merged <- FindVariableFeatures(merged, selection.method = "vst", nfeatures = 2000)
+merged <- ScaleData(merged, features = VariableFeatures(merged))
+merged <- RunPCA(merged, features = VariableFeatures(merged), npcs = 50)
+
+
+# change 'lps_status' to your metadata column name if needed
+png(
+  filename = file.path(plots_dir, "diagnostic_PCA_by_LPS_status.png"),
+  width = 6,
+  height = 5,
+  units = "in",
+  res = 300
+)
+DimPlot(merged, reduction = "pca", group.by = "condition", pt.size = 0.2) +
+  ggtitle("Diagnostic PCA: colored by LPS treatment status")
+dev.off()
+png(
+  filename = file.path(plots_dir, "diagnostic_PCA_by_sample.png"),
+  width = 6,
+  height = 5,
+  units = "in",
+  res = 300
+)
+
+DimPlot(merged, reduction = "pca", group.by = "sample", pt.size = 0.2) +
+  ggtitle("Diagnostic PCA: colored by LPS treatment status")
+
+dev.off()
+
+rm(merged)
 qc_df <- bind_rows(lapply(names(preIntegrationSeuratList), function(s) {
   
   obj <- preIntegrationSeuratList[[s]]
@@ -763,15 +801,7 @@ markers <- FindAllMarkers(VU40T.combined,
                           logfc.threshold = 0.25)
 
 
-# 
-# markers <- FindAllMarkers(VU40T.combined,
-#                           only.pos = F,
-#                           min.pct = 0,
-#                           logfc.threshold = 0)
-# 
-# c6_markers <- markers[markers$cluster == 6, ]
 
-# c6_markers
 
 write.csv(markers, file = file.path(
   res_dir, 
@@ -917,6 +947,8 @@ genelist <- read.csv("~/Markers_for_dotplots_2_set1.csv", header = T) ## both hu
 if(species == "mouse"){
   VU40T.combined <- subset(VU40T.combined, idents = 13, invert = TRUE)
 }
+
+
 
 make_marker_dotplots(VU40T.combined, 
                      genelist, 

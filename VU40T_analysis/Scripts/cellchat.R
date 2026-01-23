@@ -168,11 +168,11 @@ p <- lapply(seq_along(genestoplot), function(i) {
     labs(title = g, x = "",
          y = "") +
     theme(
-      plot.title = element_text(face = "bold", hjust = 0.5, size = 14, , vjust = 0.4),
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 18, , vjust = 0.4),
       axis.title.y = element_blank(),
-      axis.text.y = element_text(size = 8, angle = 0),
+      axis.text.y = element_text(size = 16, angle = 0),
       axis.title.x = element_blank(),
-      axis.text.x  = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 14),
+      axis.text.x  = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 16),
       axis.ticks.x = element_blank(),
       plot.margin = margin(2, 6, 2, 5)
     )
@@ -191,16 +191,17 @@ p2 <- lapply(seq_along(genestoplot), function(i) {
     labs(title = stringr::str_to_sentence(tolower(g)), 
          x = "", y = "") +
     theme(
-      plot.title = element_text(face = "bold", hjust = 0.5, size = 14, vjust = 0.3),
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 18, vjust = 0.3),
       axis.title.y = element_blank(),
-      axis.text.y = element_text(size = 8, angle = 0),
+      axis.text.y = element_text(size = 16, angle = 0),
       axis.title.x = element_blank(),
-      axis.text.x  = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 14),
+      axis.text.x  = element_text(angle = 0, vjust = 0.5, hjust = 0.5, size = 16),
       axis.ticks.x = element_blank(),
       plot.margin = margin(2, 6, 2, 5)
     )
 })
 plots_list <- append(p, p2)
+plots_list <- plots_list[c(1, 3, 2, 4)]
 p_stack <- wrap_plots(
   plots_list,
   ncol = 2,
@@ -220,7 +221,7 @@ p_stack <- wrap_plots(
 print(p_stack)
 
 png(file.path(plot_dir, "VlnPlot_TGFA-TGFBR3_L-R.png"),
-    width = 10, height = 10, units = "in", res = 300)
+    width = 10, height = 8, units = "in", res = 300)
 print(p_stack)
 dev.off()
 
